@@ -19,11 +19,10 @@ class Theme:
     def get_font(self, size):
         return pygame.font.Font(self.FONT_PATH, size)
 
-
 # === Theme definitions ===
 
 RETRO_ARCADE = Theme(
-    name="Retro Arcade",
+    "Retro Arcade",
     background=(26, 26, 26),
     ball=(255, 255, 255),
     player=(0, 255, 0),
@@ -37,7 +36,7 @@ RETRO_ARCADE = Theme(
 )
 
 NEON_CYBERPUNK = Theme(
-    name="Neon Cyberpunk",
+    "Neon Cyberpunk",
     background=(15, 15, 15),
     ball=(0, 255, 255),
     player=(255, 0, 255),
@@ -50,8 +49,8 @@ NEON_CYBERPUNK = Theme(
     font_path='assets/PressStart2P.ttf'
 )
 
-MORANDI = Theme(
-    name="Morandi Elegance",
+MORANDI_ELEGANCE = Theme(
+    "Morandi Elegance",
     background=(230, 228, 220),
     ball=(214, 199, 176),
     player=(168, 159, 145),
@@ -64,8 +63,51 @@ MORANDI = Theme(
     font_path='assets/PressStart2P.ttf'
 )
 
+JAPANESE_TRADITIONAL = Theme(
+    "Japanese Traditional",
+    background=(247, 241, 231),  # 薄墨色
+    ball=(152, 105, 96),         # 紅緋
+    player=(112, 128, 144),      # 錫色
+    ai=(201, 173, 167),          # 鳩羽鼠
+    player_bar_bg=(190, 183, 172),
+    player_bar_fill=(112, 128, 144),
+    ai_bar_bg=(210, 180, 170),
+    ai_bar_fill=(152, 105, 96),
+    text=(66, 66, 66),
+    font_path='assets/PressStart2P.ttf'
+)
+
+CHINESE_TRADITIONAL = Theme(
+    "Chinese Traditional",
+    background=(248, 245, 240),  # 米色
+    ball=(190, 30, 45),          # 中國紅
+    player=(255, 204, 0),        # 明黃
+    ai=(104, 168, 103),          # 青綠
+    player_bar_bg=(255, 230, 150),
+    player_bar_fill=(255, 204, 0),
+    ai_bar_bg=(160, 190, 150),
+    ai_bar_fill=(104, 168, 103),
+    text=(33, 33, 33),
+    font_path='assets/PressStart2P.ttf'
+)
+
+MATERIAL_FLAT = Theme(
+    "Material Flat",
+    background=(236, 239, 241),
+    ball=(33, 150, 243),
+    player=(76, 175, 80),
+    ai=(244, 67, 54),
+    player_bar_bg=(200, 230, 201),
+    player_bar_fill=(76, 175, 80),
+    ai_bar_bg=(239, 154, 154),
+    ai_bar_fill=(244, 67, 54),
+    text=(33, 33, 33),
+    font_path='assets/PressStart2P.ttf'
+)
+
+
 # === Choose your active theme here ===
-ACTIVE_THEME = NEON_CYBERPUNK  # <- 只改這一行就換整個遊戲外觀
+ACTIVE_THEME = CHINESE_TRADITIONAL  # <- 只改這一行就換整個遊戲外觀
 
 # === Proxy Style class ===
 class Style:
@@ -79,6 +121,20 @@ class Style:
     AI_BAR_FILL = ACTIVE_THEME.AI_BAR_FILL
     TEXT_COLOR = ACTIVE_THEME.TEXT_COLOR
     FONT_PATH = ACTIVE_THEME.FONT_PATH
+
+    # 在 Style class 裡加入（在 theme.py）
+
+    # 字體大小（你要分主、副、內容）
+    TITLE_FONT_SIZE = 28
+    SUBTITLE_FONT_SIZE = 16
+    ITEM_FONT_SIZE = 20
+
+    # 文字位置偏移
+    TITLE_POS = (40, 30)
+    SUBTITLE_POS = (40, 65)
+    ITEM_START_POS = (100, 120)
+    ITEM_LINE_SPACING = 40
+
 
     @staticmethod
     def get_font(size):
