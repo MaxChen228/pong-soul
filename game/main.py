@@ -15,13 +15,14 @@ from envs.pong_duel_env import PongDuelEnv
 from game.ai_agent import AIAgent
 from game.level import LevelManager
 from game.menu import show_level_selection
+from game.theme import Style
 
 # 倒數動畫顯示
 def show_countdown(screen):
-    font = pygame.font.Font(None, 72)  # 使用內建字型，防炸
+    font = Style.get_font(72)
     for n in ["3", "2", "1", "START"]:
-        screen.fill((0, 0, 0))
-        text = font.render(n, True, (255, 255, 0))
+        screen.fill(Style.BACKGROUND_COLOR)
+        text = font.render(n, True, Style.TEXT_COLOR)
         rect = text.get_rect(center=(screen.get_width() // 2, screen.get_height() // 2))
         screen.blit(text, rect)
         pygame.display.flip()
@@ -29,13 +30,14 @@ def show_countdown(screen):
 
 # 結果畫面顯示
 def show_result_banner(screen, text, color):
-    font = pygame.font.Font(None, 64)
-    screen.fill((0, 0, 0))
+    font = Style.get_font(64)
+    screen.fill(Style.BACKGROUND_COLOR)
     banner = font.render(text, True, color)
     rect = banner.get_rect(center=(screen.get_width() // 2, screen.get_height() // 2))
     screen.blit(banner, rect)
     pygame.display.flip()
     pygame.time.delay(1500)
+
 
 def main():
     # 顯示選關卡選單
@@ -96,11 +98,11 @@ def main():
                 print("😵 You missed!")
 
             if player_life <= 0:
-                show_result_banner(env.window, "YOU LOSE", (255, 0, 0))
+                show_result_banner(env.window, "YOU LOSE", Style.AI_COLOR)
                 break
 
             elif ai_life <= 0:
-                show_result_banner(env.window, "YOU WIN", (0, 255, 0))
+                show_result_banner(env.window, "YOU WIN", Style.PLAYER_COLOR)
                 break
 
             time.sleep(1)

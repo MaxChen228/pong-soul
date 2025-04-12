@@ -3,6 +3,7 @@ from gym import spaces
 import numpy as np
 import pygame
 import random
+from game.theme import Style 
 
 class PongDuelEnv(gym.Env):
     def __init__(self, render_size=400, paddle_width=60, paddle_height=10, ball_radius=10):
@@ -144,22 +145,22 @@ class PongDuelEnv(gym.Env):
             self.window = pygame.display.set_mode((self.render_size, self.render_size))
             self.clock = pygame.time.Clock()
 
-        self.window.fill((0, 0, 0))
+        self.window.fill(Style.BACKGROUND_COLOR)
         cx = int(self.ball_x * self.render_size)
         cy = int(self.ball_y * self.render_size)
         px = int(self.player_x * self.render_size)
         ax = int(self.ai_x * self.render_size)
 
-        pygame.draw.circle(self.window, (255, 255, 255), (cx, cy), self.ball_radius)
+        pygame.draw.circle(self.window, Style.BALL_COLOR, (cx, cy), self.ball_radius)
 
-        pygame.draw.rect(self.window, (0, 255, 0), (
+        pygame.draw.rect(self.window, Style.PLAYER_COLOR, (
             px - self.paddle_width // 2,
             self.render_size - self.paddle_height,
             self.paddle_width,
             self.paddle_height
         ))
 
-        pygame.draw.rect(self.window, (255, 0, 0), (
+        pygame.draw.rect(self.window, Style.AI_COLOR, (
             ax - self.paddle_width // 2,
             0,
             self.paddle_width,
@@ -171,20 +172,20 @@ class PongDuelEnv(gym.Env):
         bar_height = 10
         spacing = 10
 
-        pygame.draw.rect(self.window, (100, 0, 0), (
+        pygame.draw.rect(self.window, Style.AI_BAR_BG, (
             spacing, spacing, bar_width, bar_height
         ))
-        pygame.draw.rect(self.window, (255, 0, 0), (
+        pygame.draw.rect(self.window, Style.AI_BAR_FILL, (
             spacing, spacing,
             bar_width * (self.ai_life / self.max_life), bar_height
         ))
 
-        pygame.draw.rect(self.window, (0, 100, 0), (
+        pygame.draw.rect(self.window, Style.PLAYER_BAR_BG, (
             self.render_size - bar_width - spacing,
             self.render_size - bar_height - spacing,
             bar_width, bar_height
         ))
-        pygame.draw.rect(self.window, (0, 255, 0), (
+        pygame.draw.rect(self.window, Style.PLAYER_BAR_FILL, (
             self.render_size - bar_width - spacing,
             self.render_size - bar_height - spacing,
             bar_width * (self.player_life / self.max_life),
