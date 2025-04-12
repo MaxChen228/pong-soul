@@ -14,8 +14,8 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from envs.pong_duel_env import PongDuelEnv
 from game.ai_agent import AIAgent
 from game.level import LevelManager
-from game.menu import show_level_selection
 from game.theme import Style
+from game.menu import show_level_selection, select_input_method
 
 # 倒數動畫顯示
 def show_countdown(screen):
@@ -38,12 +38,23 @@ def show_result_banner(screen, text, color):
     pygame.display.flip()
     pygame.time.delay(1500)
 
-
+input_mode = None  # 👈 新增全域變數，避免重複讀取
 def main():
-    # 顯示選關卡選單
-    selected_index = show_level_selection()
+    global input_mode
 
-    # 載入選定的關卡模型與設定
+    # 若還沒選輸入法，先讓選
+    if input_mode is None:
+        input_mode = select_input_method()
+        if input_mode is None:
+            return  # 使用者關掉選單
+
+    # 顯示關卡選單
+    selected_index = show_level_selection()
+    if selected_index is None:
+        input_mode = None  # 👈 重置輸入法，下次重新選
+        return  # 回上一層（整個 main() loop）
+
+    # 載入關卡模型與設定
     levels = LevelManager()
     levels.current_level = selected_index
     model_path = levels.get_current_model_path()
@@ -57,9 +68,8 @@ def main():
     env.set_params_from_config(config)
     ai = AIAgent(model_path)
 
-    # 建立畫面（要先 render 才有 window 給字型用）
     obs, _ = env.reset()
-    env.render()               # 👈 建立 window
+    env.render()
     show_countdown(env.window)
 
     done = False
@@ -67,23 +77,27 @@ def main():
         env.render()
         time.sleep(0.016)
 
-        # 玩家控制
-        keys = pygame.key.get_pressed()
+        # 玩家控制（照你原本 input_mode 的邏輯）
         player_action = 1
-        if keys[pygame.K_LEFT]:
-            player_action = 0
-        elif keys[pygame.K_RIGHT]:
-            player_action = 2
+        if input_mode == "keyboard":
+            keys = pygame.key.get_pressed()
+            if keys[pygame.K_LEFT]:
+                player_action = 0
+            elif keys[pygame.K_RIGHT]:
+                player_action = 2
+        elif input_mode == "mouse":
+            mouse_x = pygame.mouse.get_pos()[0] / env.render_size
+            if mouse_x < env.player_x - 0.01:
+                player_action = 0
+            elif mouse_x > env.player_x + 0.01:
+                player_action = 2
 
-        # AI 控制
         ai_obs = obs.copy()
         ai_obs[4], ai_obs[5] = ai_obs[5], ai_obs[4]
         ai_action = ai.select_action(ai_obs)
 
-        # 執行一輪
         obs, reward, done, _, _ = env.step(player_action, ai_action)
 
-        # 處理視窗關閉
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 env.close()
@@ -100,7 +114,6 @@ def main():
             if player_life <= 0:
                 show_result_banner(env.window, "YOU LOSE", Style.AI_COLOR)
                 break
-
             elif ai_life <= 0:
                 show_result_banner(env.window, "YOU WIN", Style.PLAYER_COLOR)
                 break
@@ -110,6 +123,7 @@ def main():
             done = False
 
     env.close()
+
 
 # 主迴圈：結束後回到選單
 if __name__ == '__main__':

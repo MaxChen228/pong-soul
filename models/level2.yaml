@@ -1,9 +1,18 @@
-initial_direction: down  # "up" or "down"
-initial_angle_deg: 50    # 初始角度（從垂直方向偏轉幾度）
+initial_direction: up  # "up" or "down"
+initial_angle_deg_range: [-60, 60]
+    # 初始角度（從垂直方向偏轉幾度）
 initial_speed: 0.02
 
 enable_spin: true
-magnus_factor: 0.1
+magnus_factor: 0.02
 
 speed_increment: 0.01
 speed_scale_every: 2
+
+player_life: 10
+ai_life: 5
+player_max_life: 10
+ai_max_life: 5
+
+player_paddle_width: 80
+ai_paddle_width: 60
