@@ -30,7 +30,7 @@ def show_countdown(screen):
 
 # 結果畫面顯示
 def show_result_banner(screen, text, color):
-    font = Style.get_font(64)
+    font = Style.get_font(40)
     screen.fill(Style.BACKGROUND_COLOR)
     banner = font.render(text, True, color)
     rect = banner.get_rect(center=(screen.get_width() // 2, screen.get_height() // 2))

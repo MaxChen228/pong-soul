@@ -1,9 +1,9 @@
 initial_direction: down  # "up" or "down"
 initial_angle_deg: 50    # 初始角度（從垂直方向偏轉幾度）
-initial_speed: 0.03
+initial_speed: 0.02
 
 enable_spin: true
-magnus_factor: 0.03
+magnus_factor: 0.1
 
 speed_increment: 0.01
 speed_scale_every: 2
