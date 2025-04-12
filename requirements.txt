@@ -1,0 +1,7 @@
+torch
+numpy
+pygame
+matplotlib
+PyYAML
+gym
+tensorboard

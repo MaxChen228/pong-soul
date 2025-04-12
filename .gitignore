@@ -1,0 +1,13 @@
+# Python virtual env
+venv/
+
+# Bytecode
+__pycache__/
+*.py[cod]
+
+# Models (optional)
+models/*.pth
+
+# Logs & outputs
+*.log
+plot/
