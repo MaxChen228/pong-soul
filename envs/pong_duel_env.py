@@ -84,10 +84,9 @@ class PongDuelEnv(gym.Env):
         self.time_slow_active = False
         self.time_slow_energy = 1.0
 
-        # 技能初始化（剛剛新增）
-        self.skills = {
-            "slowmo": SlowMoSkill(self)
-        }
+        # 技能初始化
+        self.skills = {}
+        self.register_skill('slowmo', SlowMoSkill(self))
 
         # 球圖像（圖片載入延後到 render）
         self.ball_image = None
@@ -148,6 +147,9 @@ class PongDuelEnv(gym.Env):
 
     def get_lives(self):
         return self.player_life, self.ai_life
+
+    def register_skill(self, skill_name, skill_obj):
+        self.skills[skill_name] = skill_obj
 
     def _scale_difficulty(self):
         factor = 1 + (self.bounces // self.speed_scale_every) * self.speed_increment

@@ -10,7 +10,6 @@ import pygame.mixer
 
 
 def show_level_selection():
-    pygame.init()
     screen = pygame.display.set_mode((500, 500))
     pygame.display.set_caption("Select Level")
 
@@ -79,7 +78,6 @@ def show_level_selection():
 
                 
 def select_input_method():
-    pygame.init()
     screen = pygame.display.set_mode((500, 500))
     pygame.display.set_caption("Select Controler")
 

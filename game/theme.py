@@ -1,6 +1,8 @@
 # game/theme.py
 
 import pygame
+from game.settings import GameSettings
+
 
 class Theme:
     def __init__(self, name, background, ball, player, ai, player_bar_bg, player_bar_fill, ai_bar_bg, ai_bar_fill, text, font_path):
@@ -106,10 +108,16 @@ MATERIAL_FLAT = Theme(
 )
 
 
-# === Choose your active theme here ===
-ACTIVE_THEME = CHINESE_TRADITIONAL  # <- 只改這一行就換整個遊戲外觀
+# === Choose your active theme dynamically ===
+ACTIVE_THEME = {
+    "Retro Arcade": RETRO_ARCADE,
+    "Neon Cyberpunk": NEON_CYBERPUNK,
+    "Morandi Elegance": MORANDI_ELEGANCE,
+    "Japanese Traditional": JAPANESE_TRADITIONAL,
+    "Chinese Traditional": CHINESE_TRADITIONAL,
+    "Material Flat": MATERIAL_FLAT
+}[GameSettings.ACTIVE_THEME_NAME]
 
-# === Proxy Style class ===
 class Style:
     BACKGROUND_COLOR = ACTIVE_THEME.BACKGROUND_COLOR
     BALL_COLOR = ACTIVE_THEME.BALL_COLOR
@@ -122,20 +130,16 @@ class Style:
     TEXT_COLOR = ACTIVE_THEME.TEXT_COLOR
     FONT_PATH = ACTIVE_THEME.FONT_PATH
 
-    # 在 Style class 裡加入（在 theme.py）
-
-    # 字體大小（你要分主、副、內容）
     TITLE_FONT_SIZE = 28
     SUBTITLE_FONT_SIZE = 16
     ITEM_FONT_SIZE = 20
 
-    # 文字位置偏移
     TITLE_POS = (40, 30)
     SUBTITLE_POS = (40, 65)
     ITEM_START_POS = (100, 120)
     ITEM_LINE_SPACING = 40
 
-
     @staticmethod
     def get_font(size):
         return ACTIVE_THEME.get_font(size)
+
