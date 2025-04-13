@@ -16,6 +16,9 @@ class PongDuelEnv(gym.Env):
 
         self.player_x = 0.5
         self.ai_x = 0.5
+        self.prev_player_x = self.player_x
+        self.prev_ai_x = self.ai_x
+
 
         self.ball_x = 0.5
         self.ball_y = 0.5
@@ -25,6 +28,7 @@ class PongDuelEnv(gym.Env):
         self.enable_spin = True
         self.magnus_factor = 0.01
         self.spin = 0
+        
 
         self.speed_scale_every = 3
         self.speed_increment = 0.005
@@ -51,6 +55,12 @@ class PongDuelEnv(gym.Env):
         self.window = None
         self.clock = None
 
+        # 時間減速相關
+        self.time_slow_active = False
+        self.time_slow_energy = 1.0
+        self.time_slow_decay = 0.005
+        self.time_slow_recover = 0.002
+
     def set_params_from_config(self, config):
         self.speed_increment = config.get('speed_increment', 0.005)
         self.speed_scale_every = config.get('speed_scale_every', 3)
@@ -74,39 +84,24 @@ class PongDuelEnv(gym.Env):
         self.player_x = 0.5
         self.ai_x = 0.5
 
-        # 決定角度
         if self.initial_angle_range:
             angle_deg = random.uniform(*self.initial_angle_range)
         else:
             angle_deg = self.initial_angle_deg
         angle_rad = np.radians(angle_deg)
 
-        # 確定發球方向邏輯：y 軸朝下為正方向
         if self.initial_direction == "down":
-            self.ball_y = (self.paddle_height / self.render_size) + 0.05  # 從 AI 下方開始
-            vy_sign = 1  # 正的 vy = 往下（pygame y 軸正向）
-            print("👾 發球方向：DOWN")
+            self.ball_y = (self.paddle_height / self.render_size) + 0.05
+            vy_sign = 1
         else:
-            self.ball_y = 1 - (self.paddle_height / self.render_size) - 0.05  # 從玩家上方開始
-            vy_sign = -1  # 負的 vy = 往上
-            print("👾 發球方向：UP")
+            self.ball_y = 1 - (self.paddle_height / self.render_size) - 0.05
+            vy_sign = -1
 
-        # 水平位置可固定在中間或稍偏
         self.ball_x = 0.5
-
-        # 球速
         self.ball_vx = self.initial_speed * np.sin(angle_rad)
         self.ball_vy = self.initial_speed * np.cos(angle_rad) * vy_sign
-
-        # 調試輸出
-        print(f"🟡 初始位置: ({self.ball_x:.2f}, {self.ball_y:.2f})")
-        print(f"🟢 初始速度: vx={self.ball_vx:.4f}, vy={self.ball_vy:.4f}")
-
         self.spin = 0
         return self._get_obs(), {}
-
-
-
 
     def _get_obs(self):
         return np.array([
@@ -127,27 +122,43 @@ class PongDuelEnv(gym.Env):
         self.ball_vy *= factor
 
     def step(self, player_action, ai_action):
+        self.prev_player_x = self.player_x
+        self.prev_ai_x = self.ai_x
         old_ball_x = self.ball_x
         old_ball_y = self.ball_y
 
+        keys = pygame.key.get_pressed()
+        if keys[pygame.K_SPACE] and self.time_slow_energy > 0:
+            self.time_slow_active = True
+            self.time_slow_energy -= self.time_slow_decay
+            time_scale = 0.3
+        else:
+            self.time_slow_active = False
+            if self.time_slow_energy < 1.0:
+                self.time_slow_energy += self.time_slow_recover
+            time_scale = 1.0
+
+        self.time_slow_energy = np.clip(self.time_slow_energy, 0.0, 1.0)
+
         if player_action == 0:
-            self.player_x -= 0.03
+            self.player_x -= 0.03 * time_scale
         elif player_action == 2:
-            self.player_x += 0.03
+            self.player_x += 0.03 * time_scale
 
         if ai_action == 0:
-            self.ai_x -= 0.03
+            self.ai_x -= 0.03 * time_scale
         elif ai_action == 2:
-            self.ai_x += 0.03
+            self.ai_x += 0.03 * time_scale
 
         self.player_x = np.clip(self.player_x, 0.0, 1.0)
         self.ai_x = np.clip(self.ai_x, 0.0, 1.0)
 
         if self.enable_spin:
             self.ball_vx += self.magnus_factor * self.spin * self.ball_vy
+        self.spin *= 0.98  # 自然衰減
 
-        self.ball_x += self.ball_vx
-        self.ball_y += self.ball_vy
+        self.ball_x += self.ball_vx * time_scale
+        self.ball_y += self.ball_vy * time_scale
         self.trail.append((self.ball_x, self.ball_y))
         if len(self.trail) > self.max_trail_length:
             self.trail.pop(0)
@@ -166,7 +177,9 @@ class PongDuelEnv(gym.Env):
                 self.ball_vy *= -1
                 self.bounces += 1
                 self._scale_difficulty()
-                self.spin = -1 if ai_action == 2 else (1 if ai_action == 0 else 0)
+                paddle_velocity = self.ai_x - self.prev_ai_x
+                self.spin = np.clip(paddle_velocity * 100, -3, 3)
+
             else:
                 self.ai_life -= 1
                 reward = 1
@@ -181,7 +194,10 @@ class PongDuelEnv(gym.Env):
                 self.ball_vy *= -1
                 self.bounces += 1
                 self._scale_difficulty()
-                self.spin = -1 if player_action == 0 else (1 if player_action == 2 else 0)
+                # 取當前板子速度來決定旋轉
+                paddle_velocity = self.player_x - self.prev_player_x
+                self.spin = np.clip(paddle_velocity * 100, -3, 3)  # 調整比例
+
             else:
                 self.player_life -= 1
                 reward = -1
@@ -268,6 +284,22 @@ class PongDuelEnv(gym.Env):
             self.render_size + offset_y + spacing,
             bar_width * (self.player_life / self.player_max_life),
             bar_height
+        ))
+
+        # === 畫右下角時間能量條 ===
+        slow_bar_width = 100
+        slow_bar_height = 10
+        slow_bar_spacing = 20
+        slow_bar_x = self.render_size - slow_bar_width - slow_bar_spacing
+        slow_bar_y = self.render_size + offset_y + self.paddle_height + slow_bar_spacing
+
+        pygame.draw.rect(self.window, (50, 50, 50), (
+            slow_bar_x, slow_bar_y, slow_bar_width, slow_bar_height
+        ))
+        pygame.draw.rect(self.window, (0, 200, 255), (
+            slow_bar_x, slow_bar_y,
+            slow_bar_width * self.time_slow_energy,
+            slow_bar_height
         ))
 
         pygame.display.flip()
