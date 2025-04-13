@@ -119,6 +119,11 @@ def main():
             elif reward < 0:
                 print("😵 You missed!")
 
+            freeze_start = pygame.time.get_ticks()
+            while pygame.time.get_ticks() - freeze_start < env.freeze_duration:
+                env.render()
+                pygame.time.delay(16)  # 約60FPS的更新頻率
+
             if player_life <= 0:
                 show_result_banner(env.window, "YOU LOSE", Style.AI_COLOR)
                 break
@@ -126,10 +131,11 @@ def main():
                 show_result_banner(env.window, "YOU WIN", Style.PLAYER_COLOR)
                 break
 
-            # 下一輪重新開始
-            time.sleep(1)
+            # freeze效果後短暫暫停再重置
+            pygame.time.delay(500)
             obs, _ = env.reset()
             done = False
+
 
     env.close()
 

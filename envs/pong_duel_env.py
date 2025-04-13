@@ -92,7 +92,11 @@ class PongDuelEnv(gym.Env):
         # 球圖像（圖片載入延後到 render）
         self.ball_image = None
 
-
+        # 死球時的特效設定參數
+        self.freeze_timer = 0
+        self.freeze_duration = 500  # 毫秒 (0.5秒)
+        self.last_player_hit_time = 0
+        self.last_ai_hit_time = 0
 
     def set_params_from_config(self, config):
         # 設定參數由關卡設定讀入
@@ -149,6 +153,15 @@ class PongDuelEnv(gym.Env):
         self.ball_vy *= factor
 
     def step(self, player_action, ai_action):
+
+        current_time = pygame.time.get_ticks()
+        if self.freeze_timer > 0:
+            if current_time - self.freeze_timer < self.freeze_duration:
+                # freeze期間，什麼都不更新
+                return self._get_obs(), 0, False, False, {}
+            else:
+                self.freeze_timer = 0  # 解除freeze狀態
+
         # 儲存上幀資料
         self.prev_player_x = self.player_x
         self.prev_ai_x = self.ai_x
@@ -221,8 +234,13 @@ class PongDuelEnv(gym.Env):
                 self.spin = np.clip(paddle_velocity * 100, -3, 3)
             else:
                 self.ai_life -= 1
-                reward = 1
+                self.last_ai_hit_time = pygame.time.get_ticks()
+                self.freeze_timer = pygame.time.get_ticks()
+                for skill in self.skills.values():
+                    skill.deactivate()
                 return self._get_obs(), reward, True, False, {}
+
+
 
         # 玩家擋板
         player_y = 1 - self.paddle_height / self.render_size
@@ -249,8 +267,13 @@ class PongDuelEnv(gym.Env):
                 self.spin = omega_post
             else:
                 self.player_life -= 1
-                reward = -1
+                self.last_player_hit_time = pygame.time.get_ticks()
+                self.freeze_timer = pygame.time.get_ticks()
+                for skill in self.skills.values():
+                    skill.deactivate()
                 return self._get_obs(), reward, True, False, {}
+
+
 
         return self._get_obs(), reward, False, False, {}
 

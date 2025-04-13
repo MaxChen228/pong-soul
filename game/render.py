@@ -24,7 +24,16 @@ class Renderer:
 
 
     def render(self):
-        self.window.fill(Style.BACKGROUND_COLOR)
+        freeze_active = self.env.freeze_timer > 0 and pygame.time.get_ticks() - self.env.freeze_timer < self.env.freeze_duration
+        if freeze_active:
+            if (pygame.time.get_ticks() // 100) % 2 == 0:  # 調慢頻率為100毫秒閃爍一次
+                flash_color = (220, 220, 220)  # 略灰一點的白色，避免過亮
+                self.window.fill(flash_color)
+            else:
+                self.window.fill((10, 10, 10))  # 黑色對比強烈的顏色
+        else:
+            self.window.fill(Style.BACKGROUND_COLOR)
+
         offset_y = self.offset_y
 
         # === 衝擊波觸發 ===
@@ -96,10 +105,51 @@ class Renderer:
 
         # 血條顯示
         bar_width, bar_height, spacing = 150, 20, 20
-        pygame.draw.rect(self.window, Style.AI_BAR_BG, (self.render_size - bar_width - spacing, spacing, bar_width, bar_height))
-        pygame.draw.rect(self.window, Style.AI_BAR_FILL, (self.render_size - bar_width - spacing, spacing, bar_width * (self.env.ai_life / self.env.ai_max_life), bar_height))
-        pygame.draw.rect(self.window, Style.PLAYER_BAR_BG, (spacing, self.render_size + offset_y + spacing, bar_width, bar_height))
-        pygame.draw.rect(self.window, Style.PLAYER_BAR_FILL, (spacing, self.render_size + offset_y + spacing, bar_width * (self.env.player_life / self.env.player_max_life), bar_height))
+        current_time = pygame.time.get_ticks()
+
+        # === AI 血條 ===
+        # 背景 (底色)
+        pygame.draw.rect(self.window, Style.AI_BAR_BG, (
+            self.render_size - bar_width - spacing,
+            spacing,
+            bar_width,
+            bar_height
+        ))
+
+        # 閃爍效果 (扣血時，使用時間判斷)
+        ai_flash = current_time - self.env.last_ai_hit_time < self.env.freeze_duration
+        ai_bar_color = (255, 255, 255) if ai_flash and (current_time // 100 % 2 == 0) else Style.AI_BAR_FILL
+
+        # 前景 (血量)
+        pygame.draw.rect(self.window, ai_bar_color, (
+            self.render_size - bar_width - spacing,
+            spacing,
+            bar_width * (self.env.ai_life / self.env.ai_max_life),
+            bar_height
+        ))
+
+        # === 玩家 血條 ===
+        # 背景 (底色)
+        pygame.draw.rect(self.window, Style.PLAYER_BAR_BG, (
+            spacing,
+            self.render_size + offset_y + spacing,
+            bar_width,
+            bar_height
+        ))
+
+        # 閃爍效果 (扣血時，使用時間判斷)
+        player_flash = current_time - self.env.last_player_hit_time < self.env.freeze_duration
+        player_bar_color = (255, 255, 255) if player_flash and (current_time // 100 % 2 == 0) else Style.PLAYER_BAR_FILL
+
+        # 前景 (血量)
+        pygame.draw.rect(self.window, player_bar_color, (
+            spacing,
+            self.render_size + offset_y + spacing,
+            bar_width * (self.env.player_life / self.env.player_max_life),
+            bar_height
+        ))
+
+
 
         # 技能條
         slow_bar_width, slow_bar_height, slow_bar_spacing = 100, 10, 20
