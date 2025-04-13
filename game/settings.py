@@ -14,4 +14,4 @@ class GameSettings:
     COUNTDOWN_SECONDS = 3
 
     # ⭐️ 新增主題選擇參數：
-    ACTIVE_THEME_NAME = "Japanese Traditional"
+    ACTIVE_THEME_NAME = "Chinese Traditional"

@@ -1,4 +1,5 @@
 import pygame
+pygame.mixer.init()
 from game.settings import GameSettings  # ⭐️ 引用設定
 
 class SoundManager:
