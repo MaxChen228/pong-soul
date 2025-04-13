@@ -12,6 +12,12 @@ class PongDuelEnv(gym.Env):
     def __init__(self, render_size=400, paddle_width=60, paddle_height=10, ball_radius=10):
         super().__init__()
 
+        # ========== 音效參數 ==========
+        pygame.mixer.init()
+        self.slowmo_sound = pygame.mixer.Sound("assets/slowmo.mp3")
+        self.slowmo_channel = None  # 之後要用這個控制播放/停止
+
+
         # ========== 物理參數 ==========
         self.mass = 1.0       # kg
         self.radius = 0.02    # m
@@ -145,21 +151,34 @@ class PongDuelEnv(gym.Env):
         # 處理時間減速
         keys = pygame.key.get_pressed()
         if keys[pygame.K_SPACE] and self.time_slow_energy > 0:
+            if not self.time_slow_active:
+                # 起始播放（只在狀態轉變時播）
+                self.slowmo_channel = self.slowmo_sound.play(-1)  # -1 表無限 loop
             self.time_slow_active = True
             self.time_slow_energy -= self.time_slow_decay
             time_scale = 0.3
         else:
+            if self.time_slow_active and self.slowmo_channel:
+                self.slowmo_channel.stop()  # 放開就停止
             self.time_slow_active = False
+            if self.time_slow_energy < 1.0:
+                self.time_slow_energy += self.time_slow_recover
+            time_scale = 1.0
             if self.time_slow_energy < 1.0:
                 self.time_slow_energy += self.time_slow_recover
             time_scale = 1.0
         self.time_slow_energy = np.clip(self.time_slow_energy, 0.0, 1.0)
 
         # 玩家/AI 控制 paddle
+        # Combo 強化：時間變慢時玩家移動更快
+        combo_boost = 1.0
+        if self.time_slow_active:
+            combo_boost = 2.0  # 2 倍移動速度
         if player_action == 0:
-            self.player_x -= 0.03 * time_scale
+            self.player_x -= 0.03 * time_scale * combo_boost
         elif player_action == 2:
-            self.player_x += 0.03 * time_scale
+            self.player_x += 0.03 * time_scale * combo_boost
+
         if ai_action == 0:
             self.ai_x -= 0.03 * time_scale
         elif ai_action == 2:
@@ -191,7 +210,7 @@ class PongDuelEnv(gym.Env):
         ai_y = self.paddle_height / self.render_size
         ai_half_width = self.ai_paddle_width / self.render_size / 2
         if old_ball_y > ai_y and self.ball_y <= ai_y:
-            if abs(self.ball_x - self.ai_x) < ai_half_width:
+            if abs(self.ball_x - self.ai_x) < ai_half_width + self.radius:
                 self.ball_y = ai_y
                 self.ball_vy *= -1
                 self.bounces += 1
@@ -207,7 +226,7 @@ class PongDuelEnv(gym.Env):
         player_y = 1 - self.paddle_height / self.render_size
         player_half_width = self.player_paddle_width / self.render_size / 2
         if old_ball_y < player_y and self.ball_y >= player_y:
-            if abs(self.ball_x - self.player_x) < player_half_width:
+            if abs(self.ball_x - self.player_x) < player_half_width + self.radius:
                 self.ball_y = player_y
                 self.bounces += 1
                 self._scale_difficulty()
@@ -242,10 +261,47 @@ class PongDuelEnv(gym.Env):
         self.window.fill(Style.BACKGROUND_COLOR)
         offset_y = 100
 
-        # UI 區塊背景
-        ui_overlay_color = tuple(max(0, c - 20) for c in Style.BACKGROUND_COLOR)
+        # === 衝擊波觸發：每次進入時間減速都觸發一次 ===
+        if self.time_slow_active:
+            if not hasattr(self, 'shockwaves'):
+                self.shockwaves = []
+            if not hasattr(self, 'last_slowmo_frame'):
+                self.last_slowmo_frame = 0
+
+            if self.last_slowmo_frame <= 0:
+                cx = int(self.player_x * self.render_size)
+                cy = int((1 - self.paddle_height / self.render_size) * self.render_size + offset_y)
+                self.shockwaves.append({
+                    "cx": cx,
+                    "cy": cy,
+                    "radius": 0
+                })
+                self.last_slowmo_frame = 1
+            else:
+                self.last_slowmo_frame += 1
+        else:
+            self.last_slowmo_frame = 0
+            # 清除所有霧氣和衝擊波（放開鍵時立即清除）
+            if hasattr(self, 'shockwaves'):
+                del self.shockwaves
+
+        # === 畫所有衝擊波 ===
+        if hasattr(self, 'shockwaves'):
+            for shockwave in self.shockwaves:
+                shockwave["radius"] += 60
+                overlay = pygame.Surface((self.render_size, self.render_size + 200), pygame.SRCALPHA)
+                pygame.draw.circle(overlay, (50, 150, 255, 80), (shockwave["cx"], shockwave["cy"]), shockwave["radius"])
+                pygame.draw.circle(overlay, (255, 255, 255, 200), (shockwave["cx"], shockwave["cy"]), shockwave["radius"], width=6)
+                self.window.blit(overlay, (0, 0))
+
+        # === UI 區塊背景 ===
+        if self.time_slow_active:
+            ui_overlay_color = (20, 20, 100)
+        else:
+            ui_overlay_color = tuple(max(0, c - 20) for c in Style.BACKGROUND_COLOR)
         pygame.draw.rect(self.window, ui_overlay_color, (0, 0, self.render_size, offset_y))
         pygame.draw.rect(self.window, ui_overlay_color, (0, offset_y + self.render_size, self.render_size, offset_y))
+
 
         cx = int(self.ball_x * self.render_size)
         cy = int(self.ball_y * self.render_size) + offset_y
