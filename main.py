@@ -18,6 +18,7 @@ from game.ai_agent import AIAgent
 from game.level import LevelManager
 from game.theme import Style
 from game.menu import show_level_selection, select_input_method
+from game.settings import GameSettings
 
 # 倒數動畫（開始前 3,2,1）
 def show_countdown(env):
@@ -90,7 +91,10 @@ def main():
     env.render()
 
     # ⭐ 背景音樂在這裡播放（明確位置）
-    env.sound_manager.play_bg_music(loop=True)
+    # ⭐️ 改成依照當前關卡的bg_music播放：
+    pygame.mixer.music.load(f"assets/{env.bg_music}")
+    pygame.mixer.music.set_volume(GameSettings.BACKGROUND_MUSIC_VOLUME)  # 確保使用設定音量
+    pygame.mixer.music.play(-1)
 
     # 開始倒數
     show_countdown(env)

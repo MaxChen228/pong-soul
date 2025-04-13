@@ -4,7 +4,7 @@
 
 class GameSettings:
     # ====== 🎵 音量設定 ======
-    BACKGROUND_MUSIC_VOLUME = 0.5   # 背景音樂音量 (0.0 到 1.0)
+    BACKGROUND_MUSIC_VOLUME = 0   # 背景音樂音量 (0.0 到 1.0)
     CLICK_SOUND_VOLUME = 0.7        # 點擊音效音量 (0.0 到 1.0)
     COUNTDOWN_SOUND_VOLUME = 0.7    # 倒數音效音量 (0.0 到 1.0)
     SLOWMO_SOUND_VOLUME = 1.0       # Slowmo 技能音量 (0.0 到 1.0)

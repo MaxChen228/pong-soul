@@ -116,7 +116,9 @@ class PongDuelEnv(gym.Env):
 
         self.player_paddle_width = config.get('player_paddle_width', 60)
         self.ai_paddle_width = config.get('ai_paddle_width', 60)
-
+        # ⭐️ 載入背景音樂
+        self.bg_music = config.get("bg_music", "bg_music.mp3")  # 預設值防止出錯
+        
     def reset(self):
         # 重置狀態（球位置、板子位置、速度）
         self.bounces = 0

@@ -15,7 +15,6 @@ class SoundManager:
         self.countdown_sound = pygame.mixer.Sound("assets/countdown.mp3")
         self.countdown_sound.set_volume(GameSettings.COUNTDOWN_SOUND_VOLUME)  # ⭐️ 使用設定音量
 
-        pygame.mixer.music.load("assets/bg_music.mp3")
         pygame.mixer.music.set_volume(GameSettings.BACKGROUND_MUSIC_VOLUME)   # ⭐️ 使用設定音量
 
 
