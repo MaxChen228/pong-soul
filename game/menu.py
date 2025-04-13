@@ -5,6 +5,9 @@ import sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from game.level import LevelManager
 from game.theme import Style  # 新增 if not already
+from game.settings import GameSettings
+import pygame.mixer
+
 
 def show_level_selection():
     pygame.init()
@@ -17,6 +20,10 @@ def show_level_selection():
     font_item = Style.get_font(Style.ITEM_FONT_SIZE)
 
     clock = pygame.time.Clock()
+
+     # ⭐ 播放 menu 專屬背景音樂 ⭐ 新增這裡
+
+     # pygame.mixer.music.set_volume(GameSettings.BACKGROUND_MUSIC_VOLUME)
 
     levels = LevelManager()
     level_names = [os.path.basename(f).replace(".pth", "") for f in levels.model_files]
@@ -60,9 +67,11 @@ def show_level_selection():
                 elif event.key == pygame.K_UP:
                     selected = (selected - 1) % len(level_names)
                 elif event.key == pygame.K_RETURN:
+                    pygame.mixer.music.stop()  # ⭐ 停止音樂（新增）
                     pygame.quit()
                     return selected
                 elif event.key == pygame.K_ESCAPE:
+                    pygame.mixer.music.stop()  # ⭐ 停止音樂（新增）
                     pygame.quit()
                     return None  # 回上層
 
@@ -71,7 +80,7 @@ def show_level_selection():
                 
 def select_input_method():
     pygame.init()
-    screen = pygame.display.set_mode((500, 500))  # 🆗 對齊關卡選單
+    screen = pygame.display.set_mode((500, 500))
     pygame.display.set_caption("Select Controler")
 
     font_title = Style.get_font(Style.TITLE_FONT_SIZE)
@@ -81,6 +90,13 @@ def select_input_method():
     options = ["Keyboard", "Mouse"]
     selected = 0
     clock = pygame.time.Clock()
+
+    # ⭐ 播放 menu 專屬背景音樂 ⭐ 新增這裡
+    pygame.mixer.init()
+    pygame.mixer.music.load("assets/menu_music.mp3")
+    pygame.mixer.music.set_volume(GameSettings.BACKGROUND_MUSIC_VOLUME)
+    pygame.mixer.music.play(-1)
+    
 
     while True:
         screen.fill(Style.BACKGROUND_COLOR)
@@ -113,5 +129,4 @@ def select_input_method():
                 elif event.key == pygame.K_UP:
                     selected = (selected - 1) % len(options)
                 elif event.key == pygame.K_RETURN:
-                    pygame.quit()
                     return options[selected].lower()

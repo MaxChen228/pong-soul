@@ -58,7 +58,7 @@ class Renderer:
         # 畫衝擊波
         if hasattr(self.env, 'shockwaves'):
             for shockwave in self.env.shockwaves:
-                shockwave["radius"] += 60
+                shockwave["radius"] += 30
                 overlay = pygame.Surface((self.render_size, self.render_size + 200), pygame.SRCALPHA)
                 pygame.draw.circle(overlay, (50, 150, 255, 80), (shockwave["cx"], shockwave["cy"]), shockwave["radius"])
                 pygame.draw.circle(overlay, (255, 255, 255, 200), (shockwave["cx"], shockwave["cy"]), shockwave["radius"], width=6)
