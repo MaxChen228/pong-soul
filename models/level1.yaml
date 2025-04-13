@@ -5,12 +5,12 @@ initial_speed: 0.025
 enable_spin: true
 magnus_factor: 0.01
 
-speed_increment: 0.003
-speed_scale_every: 3
+speed_increment: 0.01
+speed_scale_every: 1
 
-player_life: 10
+player_life: 3
 ai_life: 3
-player_max_life: 10
+player_max_life: 3
 ai_max_life: 3
 
 player_paddle_width: 100

@@ -1,4 +1,4 @@
-initial_direction: up  # "up" or "down"
+initial_direction: down  # "up" or "down"
 initial_angle_deg_range: [-60, 60]
     # 初始角度（從垂直方向偏轉幾度）
 initial_speed: 0.02
@@ -9,9 +9,9 @@ magnus_factor: 0.02
 speed_increment: 0.01
 speed_scale_every: 2
 
-player_life: 10
+player_life: 5
 ai_life: 5
-player_max_life: 10
+player_max_life: 5
 ai_max_life: 5
 
 player_paddle_width: 80

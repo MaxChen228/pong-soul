@@ -1,3 +1,5 @@
+# main.py（已整理 + 註解）
+
 import pygame
 import sys
 import time
@@ -5,19 +7,19 @@ import os
 import torch
 import numpy as np
 
-# 初始化 pygame 和字型
+# 初始化 pygame 系統
 pygame.init()
 pygame.font.init()
 
+# 載入模組
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-
 from envs.pong_duel_env import PongDuelEnv
 from game.ai_agent import AIAgent
 from game.level import LevelManager
 from game.theme import Style
 from game.menu import show_level_selection, select_input_method
 
-# 倒數動畫顯示
+# 倒數動畫（開始前 3,2,1）
 def show_countdown(screen):
     font = Style.get_font(72)
     for n in ["3", "2", "1", "START"]:
@@ -28,7 +30,7 @@ def show_countdown(screen):
         pygame.display.flip()
         pygame.time.delay(700)
 
-# 結果畫面顯示
+# 顯示遊戲結果橫幅（YOU WIN / LOSE）
 def show_result_banner(screen, text, color):
     font = Style.get_font(40)
     screen.fill(Style.BACKGROUND_COLOR)
@@ -38,23 +40,25 @@ def show_result_banner(screen, text, color):
     pygame.display.flip()
     pygame.time.delay(1500)
 
-input_mode = None  # 👈 新增全域變數，避免重複讀取
+# 全域控制輸入方式（Keyboard / Mouse）
+input_mode = None
+
 def main():
     global input_mode
 
-    # 若還沒選輸入法，先讓選
+    # 選擇控制方式
     if input_mode is None:
         input_mode = select_input_method()
         if input_mode is None:
-            return  # 使用者關掉選單
+            return
 
-    # 顯示關卡選單
+    # 選擇關卡
     selected_index = show_level_selection()
     if selected_index is None:
-        input_mode = None  # 👈 重置輸入法，下次重新選
-        return  # 回上一層（整個 main() loop）
+        input_mode = None
+        return
 
-    # 載入關卡模型與設定
+    # 載入關卡設定與 AI 模型
     levels = LevelManager()
     levels.current_level = selected_index
     model_path = levels.get_current_model_path()
@@ -68,6 +72,7 @@ def main():
     env.set_params_from_config(config)
     ai = AIAgent(model_path)
 
+    # 初始化遊戲狀態
     obs, _ = env.reset()
     env.render()
     show_countdown(env.window)
@@ -75,10 +80,10 @@ def main():
     done = False
     while True:
         env.render()
-        time.sleep(0.016)
+        time.sleep(0.016)  # 60 FPS
 
-        # 玩家控制（照你原本 input_mode 的邏輯）
-        player_action = 1
+        # 處理玩家控制輸入
+        player_action = 1  # 預設保持不動
         if input_mode == "keyboard":
             keys = pygame.key.get_pressed()
             if keys[pygame.K_LEFT]:
@@ -92,20 +97,23 @@ def main():
             elif mouse_x > env.player_x + 0.01:
                 player_action = 2
 
+        # 取得 AI 控制
         ai_obs = obs.copy()
-        ai_obs[4], ai_obs[5] = ai_obs[5], ai_obs[4]
+        ai_obs[4], ai_obs[5] = ai_obs[5], ai_obs[4]  # 對調玩家/AI 位置信息
         ai_action = ai.select_action(ai_obs)
 
+        # 遊戲邏輯進行一回合
         obs, reward, done, _, _ = env.step(player_action, ai_action)
 
+        # 處理視窗關閉
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 env.close()
                 sys.exit()
 
+        # 檢查是否結束遊戲
         if done:
             player_life, ai_life = env.get_lives()
-
             if reward > 0:
                 print("🎯 AI missed!")
             elif reward < 0:
@@ -118,14 +126,14 @@ def main():
                 show_result_banner(env.window, "YOU WIN", Style.PLAYER_COLOR)
                 break
 
+            # 下一輪重新開始
             time.sleep(1)
             obs, _ = env.reset()
             done = False
 
     env.close()
 
-
-# 主迴圈：結束後回到選單
+# 遊戲主迴圈
 if __name__ == '__main__':
     while True:
         main()
