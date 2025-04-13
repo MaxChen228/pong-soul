@@ -6,6 +6,7 @@ import random
 from game.theme import Style
 from game.physics import collide_sphere_with_moving_plane
 from game.sound import SoundManager  # 引入 SoundManager 類
+from game.render import Renderer
 
 class PongDuelEnv(gym.Env):
     def __init__(self, render_size=400, paddle_width=60, paddle_height=10, ball_radius=10):
@@ -13,6 +14,9 @@ class PongDuelEnv(gym.Env):
 
         # ========== 音效管理 ==========
         self.sound_manager = SoundManager()  # 初始化音效管理器
+
+        # ========== 渲染管理 ==========
+        self.renderer = None  # ⭐ 新增這一行解決錯誤
 
         # ========== 物理參數 ==========
         self.mass = 1.0       # kg
@@ -279,142 +283,11 @@ class PongDuelEnv(gym.Env):
 
         return self._get_obs(), reward, False, False, {}
 
-
     def render(self):
-        if not self.window:
-            pygame.init()
-            self.window = pygame.display.set_mode((self.render_size, self.render_size + 200))
-            self.clock = pygame.time.Clock()
-
-        self.window.fill(Style.BACKGROUND_COLOR)
-        offset_y = 100
-
-        # === 衝擊波觸發：每次進入時間減速都觸發一次 ===
-        if self.time_slow_active:
-            if not hasattr(self, 'shockwaves'):
-                self.shockwaves = []
-            if not hasattr(self, 'last_slowmo_frame'):
-                self.last_slowmo_frame = 0
-
-            if self.last_slowmo_frame <= 0:
-                cx = int(self.player_x * self.render_size)
-                cy = int((1 - self.paddle_height / self.render_size) * self.render_size + offset_y)
-                self.shockwaves.append({
-                    "cx": cx,
-                    "cy": cy,
-                    "radius": 0
-                })
-                self.last_slowmo_frame = 1
-            else:
-                self.last_slowmo_frame += 1
-        else:
-            self.last_slowmo_frame = 0
-            # 清除所有霧氣和衝擊波（放開鍵時立即清除）
-            if hasattr(self, 'shockwaves'):
-                del self.shockwaves
-
-        # === 畫所有衝擊波 ===
-        if hasattr(self, 'shockwaves'):
-            for shockwave in self.shockwaves:
-                shockwave["radius"] += 60
-                overlay = pygame.Surface((self.render_size, self.render_size + 200), pygame.SRCALPHA)
-                pygame.draw.circle(overlay, (50, 150, 255, 80), (shockwave["cx"], shockwave["cy"]), shockwave["radius"])
-                pygame.draw.circle(overlay, (255, 255, 255, 200), (shockwave["cx"], shockwave["cy"]), shockwave["radius"], width=6)
-                self.window.blit(overlay, (0, 0))
-
-        # === UI 區塊背景 ===
-        if self.time_slow_active:
-            ui_overlay_color = (20, 20, 100)
-        else:
-            ui_overlay_color = tuple(max(0, c - 20) for c in Style.BACKGROUND_COLOR)
-        pygame.draw.rect(self.window, ui_overlay_color, (0, 0, self.render_size, offset_y))
-        pygame.draw.rect(self.window, ui_overlay_color, (0, offset_y + self.render_size, self.render_size, offset_y))
-
-
-        cx = int(self.ball_x * self.render_size)
-        cy = int(self.ball_y * self.render_size) + offset_y
-        px = int(self.player_x * self.render_size)
-        ax = int(self.ai_x * self.render_size)
-
-        # 拖尾渲染
-        for i, (tx, ty) in enumerate(self.trail):
-            fade = int(255 * (i + 1) / len(self.trail))
-            trail_color = (Style.BALL_COLOR[0], Style.BALL_COLOR[1], Style.BALL_COLOR[2], fade)
-            trail_surface = pygame.Surface((self.render_size, self.render_size + 200), pygame.SRCALPHA)
-            pygame.draw.circle(trail_surface, trail_color, (int(tx * self.render_size), int(ty * self.render_size) + offset_y), 4)
-            self.window.blit(trail_surface, (0, 0))
-
-        # 球圖像載入（延後到 render）
-        if self.ball_image is None:
-            image = pygame.image.load("assets/sunglasses.png").convert_alpha()
-            self.ball_image = pygame.transform.smoothscale(image, (self.ball_radius * 2, self.ball_radius * 2))
-
-        # 旋轉 + 顯示球
-        if not hasattr(self, 'ball_angle'):
-            self.ball_angle = 0
-        self.ball_angle += self.spin * 12
-        rotated_ball = pygame.transform.rotate(self.ball_image, self.ball_angle)
-        rotated_rect = rotated_ball.get_rect(center=(cx, cy))
-        self.window.blit(rotated_ball, rotated_rect)
-
-        # 畫板子
-        pygame.draw.rect(self.window, Style.PLAYER_COLOR, (
-            px - self.player_paddle_width // 2,
-            offset_y + self.render_size - self.paddle_height,
-            self.player_paddle_width,
-            self.paddle_height
-        ))
-        pygame.draw.rect(self.window, Style.AI_COLOR, (
-            ax - self.ai_paddle_width // 2,
-            offset_y,
-            self.ai_paddle_width,
-            self.paddle_height
-        ))
-
-        # 血條
-        bar_width = 150
-        bar_height = 20
-        spacing = 20
-        pygame.draw.rect(self.window, Style.AI_BAR_BG, (
-            self.render_size - bar_width - spacing,
-            spacing,
-            bar_width,
-            bar_height
-        ))
-        pygame.draw.rect(self.window, Style.AI_BAR_FILL, (
-            self.render_size - bar_width - spacing,
-            spacing,
-            bar_width * (self.ai_life / self.ai_max_life),
-            bar_height
-        ))
-        pygame.draw.rect(self.window, Style.PLAYER_BAR_BG, (
-            spacing,
-            self.render_size + offset_y + spacing,
-            bar_width,
-            bar_height
-        ))
-        pygame.draw.rect(self.window, Style.PLAYER_BAR_FILL, (
-            spacing,
-            self.render_size + offset_y + spacing,
-            bar_width * (self.player_life / self.player_max_life),
-            bar_height
-        ))
-
-        # 時間能量條
-        slow_bar_width = 100
-        slow_bar_height = 10
-        slow_bar_spacing = 20
-        slow_bar_x = self.render_size - slow_bar_width - slow_bar_spacing
-        slow_bar_y = self.render_size + offset_y + self.paddle_height + slow_bar_spacing
-        pygame.draw.rect(self.window, (50, 50, 50), (slow_bar_x, slow_bar_y, slow_bar_width, slow_bar_height))
-        pygame.draw.rect(self.window, (0, 200, 255), (
-            slow_bar_x, slow_bar_y,
-            slow_bar_width * self.time_slow_energy,
-            slow_bar_height
-        ))
-
-        pygame.display.flip()
-        self.clock.tick(60)
+        if self.renderer is None:
+            self.renderer = Renderer(self)
+            self.window = self.renderer.window
+        self.renderer.render()
 
     def close(self):
         if self.window:
