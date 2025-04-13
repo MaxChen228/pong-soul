@@ -1,5 +1,3 @@
-# pong_duel_env.py（已整理 + 註解版）
-
 import gym
 from gym import spaces
 import numpy as np
@@ -16,7 +14,6 @@ class PongDuelEnv(gym.Env):
         pygame.mixer.init()
         self.slowmo_sound = pygame.mixer.Sound("assets/slowmo.mp3")
         self.slowmo_channel = None  # 之後要用這個控制播放/停止
-
 
         # ========== 物理參數 ==========
         self.mass = 1.0       # kg
@@ -148,28 +145,62 @@ class PongDuelEnv(gym.Env):
         old_ball_x = self.ball_x
         old_ball_y = self.ball_y
 
-        # 處理時間減速
+        # === 技能觸發狀態管理 ===
         keys = pygame.key.get_pressed()
-        if keys[pygame.K_SPACE] and self.time_slow_energy > 0:
-            if not self.time_slow_active:
-                # 起始播放（只在狀態轉變時播）
-                self.slowmo_channel = self.slowmo_sound.play(-1)  # -1 表無限 loop
+        if not hasattr(self, 'slowmo_timer'):
+            self.slowmo_timer = 0
+        if not hasattr(self, 'slowmo_cooldown'):
+            self.slowmo_cooldown = 0
+        if not hasattr(self, 'slowmo_just_pressed'):
+            self.slowmo_just_pressed = False
+
+        # 技能觸發檢查，按下空白鍵且冷卻結束
+        if keys[pygame.K_SPACE]:
+            if not self.slowmo_just_pressed and self.slowmo_timer <= 0 and self.slowmo_cooldown <= 0:
+                self.slowmo_timer = 90  # 技能持續 90 幀（大約 1.5 秒）
+                self.slowmo_cooldown = 120  # 冷卻時間 120 幀（2 秒）
+
+                # 播放音效，並設置為循環播放
+                if self.slowmo_channel is None:
+                    self.slowmo_channel = self.slowmo_sound.play(-1)  # 播放並循環
+                self.slowmo_channel.set_volume(1.0)  # 音量最大
+
+            self.slowmo_just_pressed = True
+        else:
+            self.slowmo_just_pressed = False
+
+        # 進行時間減速或冷卻的邏輯
+        if self.slowmo_timer > 0:
+            self.slowmo_timer -= 1
             self.time_slow_active = True
-            self.time_slow_energy -= self.time_slow_decay
             time_scale = 0.3
         else:
-            if self.time_slow_active and self.slowmo_channel:
-                self.slowmo_channel.stop()  # 放開就停止
             self.time_slow_active = False
-            if self.time_slow_energy < 1.0:
-                self.time_slow_energy += self.time_slow_recover
             time_scale = 1.0
-            if self.time_slow_energy < 1.0:
-                self.time_slow_energy += self.time_slow_recover
-            time_scale = 1.0
-        self.time_slow_energy = np.clip(self.time_slow_energy, 0.0, 1.0)
+            if self.slowmo_cooldown > 0:
+                self.slowmo_cooldown -= 1
 
-        # 玩家/AI 控制 paddle
+        # 停止音效播放，當技能結束或冷卻中
+        if self.slowmo_timer <= 0 and self.slowmo_channel is not None:
+            self.slowmo_channel.stop()  # 停止播放音效
+            self.slowmo_channel = None
+
+
+        # === 更新技能計時與狀態 ===
+        if self.slowmo_timer > 0:
+            self.slowmo_timer -= 1
+            self.time_slow_active = True
+            time_scale = 0.3
+        else:
+            self.time_slow_active = False
+            time_scale = 1.0
+            if self.slowmo_cooldown > 0:
+                self.slowmo_cooldown -= 1
+
+        # === 技能條可視化比例（render 用） ===
+        self.time_slow_energy = self.slowmo_timer / 90 if self.slowmo_timer > 0 else 0
+
+        # === 玩家 / AI 控制 ===
         # Combo 強化：時間變慢時玩家移動更快
         combo_boost = 1.0
         if self.time_slow_active:
