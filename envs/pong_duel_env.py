@@ -5,15 +5,14 @@ import pygame
 import random
 from game.theme import Style
 from game.physics import collide_sphere_with_moving_plane
+from game.sound import SoundManager  # 引入 SoundManager 類
 
 class PongDuelEnv(gym.Env):
     def __init__(self, render_size=400, paddle_width=60, paddle_height=10, ball_radius=10):
         super().__init__()
 
-        # ========== 音效參數 ==========
-        pygame.mixer.init()
-        self.slowmo_sound = pygame.mixer.Sound("assets/slowmo.mp3")
-        self.slowmo_channel = None  # 之後要用這個控制播放/停止
+        # ========== 音效管理 ==========
+        self.sound_manager = SoundManager()  # 初始化音效管理器
 
         # ========== 物理參數 ==========
         self.mass = 1.0       # kg
@@ -160,10 +159,8 @@ class PongDuelEnv(gym.Env):
                 self.slowmo_timer = 90  # 技能持續 90 幀（大約 1.5 秒）
                 self.slowmo_cooldown = 120  # 冷卻時間 120 幀（2 秒）
 
-                # 播放音效，並設置為循環播放
-                if self.slowmo_channel is None:
-                    self.slowmo_channel = self.slowmo_sound.play(-1)  # 播放並循環
-                self.slowmo_channel.set_volume(1.0)  # 音量最大
+                # 播放慢動作音效
+                self.sound_manager.play_slowmo()
 
             self.slowmo_just_pressed = True
         else:
@@ -180,11 +177,10 @@ class PongDuelEnv(gym.Env):
             if self.slowmo_cooldown > 0:
                 self.slowmo_cooldown -= 1
 
-        # 停止音效播放，當技能結束或冷卻中
-        if self.slowmo_timer <= 0 and self.slowmo_channel is not None:
-            self.slowmo_channel.stop()  # 停止播放音效
-            self.slowmo_channel = None
-
+        # 停止慢動作音效，並確保音效只停止一次
+        if self.slowmo_timer <= 0:
+            if self.sound_manager.slowmo_channel is not None:  # 確保音效正在播放
+                self.sound_manager.stop_slowmo()  # 停止播放音效
 
         # === 更新技能計時與狀態 ===
         if self.slowmo_timer > 0:
@@ -282,6 +278,7 @@ class PongDuelEnv(gym.Env):
                 return self._get_obs(), reward, True, False, {}
 
         return self._get_obs(), reward, False, False, {}
+
 
     def render(self):
         if not self.window:
