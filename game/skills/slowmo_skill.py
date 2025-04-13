@@ -1,15 +1,15 @@
-from game.skills.base_skill import Skill
 import pygame
+from game.skills.base_skill import Skill
+from game.settings import GameSettings  # ⭐️ 引用設定檔
 
 class SlowMoSkill(Skill):
     def __init__(self, env):
         super().__init__(env)
-        self.duration_ms = 1500   # 技能持續時間：1500毫秒（1.5秒）
-        self.cooldown_ms = 2000   # 冷卻時間：2000毫秒（2秒）
+        self.duration_ms = GameSettings.SLOWMO_DURATION_MS  # ⭐️ 透過設定取得
+        self.cooldown_ms = GameSettings.SLOWMO_COOLDOWN_MS  # ⭐️ 透過設定取得
         self.active = False
         self.activated_time = 0
         self.cooldown_start_time = 0
-
 
     def activate(self):
         current_time = pygame.time.get_ticks()
@@ -18,14 +18,12 @@ class SlowMoSkill(Skill):
             self.activated_time = current_time
             self.env.sound_manager.play_slowmo()
 
-
     def update(self):
         current_time = pygame.time.get_ticks()
         if self.active:
             if current_time - self.activated_time >= self.duration_ms:
                 self.deactivate()
         else:
-            # 什麼都不用做，因為冷卻是靠時間差來計算的
             pass
 
     def deactivate(self):
@@ -34,17 +32,15 @@ class SlowMoSkill(Skill):
             self.cooldown_start_time = pygame.time.get_ticks()
             self.env.sound_manager.stop_slowmo()
 
+    def is_active(self):
+        return self.active
+
     def get_cooldown_seconds(self):
         current_time = pygame.time.get_ticks()
         elapsed = current_time - self.cooldown_start_time
         remaining = max(0, self.cooldown_ms - elapsed)
-        return remaining / 1000  # 返回秒數
+        return remaining / 1000
 
-
-    def is_active(self):
-        return self.active
-
-    # ⭐ 新增此方法
     def get_energy_ratio(self):
         current_time = pygame.time.get_ticks()
         if self.active:
@@ -53,4 +49,3 @@ class SlowMoSkill(Skill):
         else:
             elapsed = current_time - self.cooldown_start_time
             return min(1.0, elapsed / self.cooldown_ms)
-
