@@ -15,6 +15,13 @@ class Renderer:
             (env.ball_radius * 2, env.ball_radius * 2)
         )
         self.ball_angle = 0
+        # 技能條追跡效果參數
+        # 技能條追跡殘影效果參數
+        self.skill_glow_position = 0
+        self.skill_glow_trail = []  # 新增：殘影位置列表
+        self.max_skill_glow_trail_length = 15  # 新增：殘影數量
+
+
 
     def render(self):
         self.window.fill(Style.BACKGROUND_COLOR)
@@ -100,6 +107,60 @@ class Renderer:
         slow_bar_y = self.render_size + offset_y + self.env.paddle_height + slow_bar_spacing
         pygame.draw.rect(self.window, (50, 50, 50), (slow_bar_x, slow_bar_y, slow_bar_width, slow_bar_height))
         pygame.draw.rect(self.window, (0, 200, 255), (slow_bar_x, slow_bar_y, slow_bar_width * self.env.time_slow_energy, slow_bar_height))
+        slowmo_skill = self.env.skills["slowmo"]
+        cooldown_seconds = slowmo_skill.get_cooldown_seconds()
+
+        if not slowmo_skill.is_active() and cooldown_seconds > 0:
+            cooldown_text = f"{cooldown_seconds:.1f}"
+
+            cooldown_font = Style.get_font(14)
+            cooldown_surface = cooldown_font.render(cooldown_text, True, Style.TEXT_COLOR)
+
+            cooldown_rect = cooldown_surface.get_rect(center=(
+                slow_bar_x + slow_bar_width / 2,
+                slow_bar_y + slow_bar_height + 15
+            ))
+
+            self.window.blit(cooldown_surface, cooldown_rect)
+
+
+        # 技能滿能量時的追跡線效果（加入殘影）
+        if self.env.time_slow_energy >= 1.0:
+            glow_rect = pygame.Rect(slow_bar_x - 2, slow_bar_y - 2, slow_bar_width + 4, slow_bar_height + 4)
+
+            # 更新追跡線位置
+            self.skill_glow_position = (self.skill_glow_position + 8) % ((glow_rect.width + glow_rect.height) * 2)
+
+            pos = self.skill_glow_position
+
+            # 計算光點位置
+            if pos <= glow_rect.width:
+                glow_pos = (glow_rect.x + pos, glow_rect.y)
+            elif pos <= glow_rect.width + glow_rect.height:
+                glow_pos = (glow_rect.x + glow_rect.width, glow_rect.y + (pos - glow_rect.width))
+            elif pos <= glow_rect.width * 2 + glow_rect.height:
+                glow_pos = (glow_rect.x + glow_rect.width - (pos - glow_rect.width - glow_rect.height), glow_rect.y + glow_rect.height)
+            else:
+                glow_pos = (glow_rect.x, glow_rect.y + glow_rect.height - (pos - 2 * glow_rect.width - glow_rect.height))
+
+            # 加入殘影座標列表
+            self.skill_glow_trail.append(glow_pos)
+            if len(self.skill_glow_trail) > self.max_skill_glow_trail_length:
+                self.skill_glow_trail.pop(0)
+
+            # 畫外框
+            pygame.draw.rect(self.window, (255, 255, 255), glow_rect, 2)
+
+            # 畫拖曳殘影效果
+            for i, pos in enumerate(self.skill_glow_trail):
+                alpha = int(255 * (i + 1) / len(self.skill_glow_trail))  # 透明度漸增
+                trail_color = (255, 255, 255, alpha)
+                trail_surface = pygame.Surface((self.render_size, self.render_size + 200), pygame.SRCALPHA)
+                pygame.draw.circle(trail_surface, trail_color, pos, 4)
+                self.window.blit(trail_surface, (0, 0))
+        else:
+            self.skill_glow_position = 0  # 重置光點位置
+            self.skill_glow_trail.clear()  # 清除殘影
 
         pygame.display.flip()
         self.clock.tick(60)

@@ -7,6 +7,8 @@ from game.theme import Style
 from game.physics import collide_sphere_with_moving_plane
 from game.sound import SoundManager  # 引入 SoundManager 類
 from game.render import Renderer
+from game.skills.slowmo_skill import SlowMoSkill
+
 
 class PongDuelEnv(gym.Env):
     def __init__(self, render_size=400, paddle_width=60, paddle_height=10, ball_radius=10):
@@ -81,11 +83,16 @@ class PongDuelEnv(gym.Env):
         # 時間減速機制
         self.time_slow_active = False
         self.time_slow_energy = 1.0
-        self.time_slow_decay = 0.005
-        self.time_slow_recover = 0.002
+
+        # 技能初始化（剛剛新增）
+        self.skills = {
+            "slowmo": SlowMoSkill(self)
+        }
 
         # 球圖像（圖片載入延後到 render）
         self.ball_image = None
+
+
 
     def set_params_from_config(self, config):
         # 設定參數由關卡設定讀入
@@ -148,57 +155,21 @@ class PongDuelEnv(gym.Env):
         old_ball_x = self.ball_x
         old_ball_y = self.ball_y
 
-        # === 技能觸發狀態管理 ===
+        # === 技能觸發與更新（新系統）===
         keys = pygame.key.get_pressed()
-        if not hasattr(self, 'slowmo_timer'):
-            self.slowmo_timer = 0
-        if not hasattr(self, 'slowmo_cooldown'):
-            self.slowmo_cooldown = 0
-        if not hasattr(self, 'slowmo_just_pressed'):
-            self.slowmo_just_pressed = False
 
-        # 技能觸發檢查，按下空白鍵且冷卻結束
+        # 按下空白鍵觸發slowmo技能
         if keys[pygame.K_SPACE]:
-            if not self.slowmo_just_pressed and self.slowmo_timer <= 0 and self.slowmo_cooldown <= 0:
-                self.slowmo_timer = 90  # 技能持續 90 幀（大約 1.5 秒）
-                self.slowmo_cooldown = 120  # 冷卻時間 120 幀（2 秒）
+            self.skills["slowmo"].activate()
 
-                # 播放慢動作音效
-                self.sound_manager.play_slowmo()
+        # 更新所有技能狀態
+        for skill in self.skills.values():
+            skill.update()
 
-            self.slowmo_just_pressed = True
-        else:
-            self.slowmo_just_pressed = False
-
-        # 進行時間減速或冷卻的邏輯
-        if self.slowmo_timer > 0:
-            self.slowmo_timer -= 1
-            self.time_slow_active = True
-            time_scale = 0.3
-        else:
-            self.time_slow_active = False
-            time_scale = 1.0
-            if self.slowmo_cooldown > 0:
-                self.slowmo_cooldown -= 1
-
-        # 停止慢動作音效，並確保音效只停止一次
-        if self.slowmo_timer <= 0:
-            if self.sound_manager.slowmo_channel is not None:  # 確保音效正在播放
-                self.sound_manager.stop_slowmo()  # 停止播放音效
-
-        # === 更新技能計時與狀態 ===
-        if self.slowmo_timer > 0:
-            self.slowmo_timer -= 1
-            self.time_slow_active = True
-            time_scale = 0.3
-        else:
-            self.time_slow_active = False
-            time_scale = 1.0
-            if self.slowmo_cooldown > 0:
-                self.slowmo_cooldown -= 1
-
-        # === 技能條可視化比例（render 用） ===
-        self.time_slow_energy = self.slowmo_timer / 90 if self.slowmo_timer > 0 else 0
+        # 判斷技能效果
+        self.time_slow_active = self.skills["slowmo"].is_active()
+        self.time_slow_energy = self.skills["slowmo"].get_energy_ratio()
+        time_scale = 0.3 if self.time_slow_active else 1.0
 
         # === 玩家 / AI 控制 ===
         # Combo 強化：時間變慢時玩家移動更快
