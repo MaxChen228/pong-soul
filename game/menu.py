@@ -130,3 +130,52 @@ def select_input_method():
                     selected = (selected - 1) % len(options)
                 elif event.key == pygame.K_RETURN:
                     return options[selected].lower()
+def select_skill():
+    pygame.init()
+    screen = pygame.display.set_mode((500, 500))
+    pygame.display.set_caption("Select Skill")
+
+    font_title = Style.get_font(Style.TITLE_FONT_SIZE)
+    font_subtitle = Style.get_font(Style.SUBTITLE_FONT_SIZE)
+    font_item = Style.get_font(Style.ITEM_FONT_SIZE)
+
+    # 技能選項
+    skills = ["slowmo", "long_paddle"]
+    selected = 0
+    clock = pygame.time.Clock()
+
+    while True:
+        screen.fill(Style.BACKGROUND_COLOR)
+
+        # 主標題
+        title_surf = font_title.render("Select Skill", True, Style.TEXT_COLOR)
+        screen.blit(title_surf, Style.TITLE_POS)
+
+        # 副標題
+        subtitle_surf = font_subtitle.render("(UP/DOWN, ENTER to confirm)", True, Style.TEXT_COLOR)
+        screen.blit(subtitle_surf, Style.SUBTITLE_POS)
+
+        # 技能列表
+        for i, skill in enumerate(skills):
+            color = Style.PLAYER_COLOR if i == selected else Style.TEXT_COLOR
+            skill_name = "Slow Motion" if skill == "slowmo" else "Long Paddle"
+            item_text = font_item.render(skill_name, True, color)
+            x, y = Style.ITEM_START_POS
+            screen.blit(item_text, (x, y + i * Style.ITEM_LINE_SPACING))
+
+        pygame.display.flip()
+        clock.tick(30)
+
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                pygame.quit()
+                sys.exit()
+            elif event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_DOWN:
+                    selected = (selected + 1) % len(skills)
+                elif event.key == pygame.K_UP:
+                    selected = (selected - 1) % len(skills)
+                elif event.key == pygame.K_RETURN:
+                    return skills[selected]
+                elif event.key == pygame.K_ESCAPE:
+                    return None  # 允許返回上一層

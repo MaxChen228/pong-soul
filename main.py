@@ -17,7 +17,7 @@ from envs.pong_duel_env import PongDuelEnv
 from game.ai_agent import AIAgent
 from game.level import LevelManager
 from game.theme import Style
-from game.menu import show_level_selection, select_input_method
+from game.menu import show_level_selection, select_input_method, select_skill
 from game.settings import GameSettings
 
 # 倒數動畫（開始前 3,2,1）
@@ -61,6 +61,13 @@ def main():
             temp_env.close()  # 播放完點擊音效立即關閉環境，避免浪費資源
         if input_mode is None:
             return
+        
+    # ⭐️ 選擇技能 (明確新增)
+    selected_skill = select_skill()
+    if selected_skill is None:
+        input_mode = None
+        return
+    GameSettings.ACTIVE_SKILL = selected_skill  # ⭐️ 將選擇的技能更新至設定
 
     # 選擇關卡
     selected_index = show_level_selection()
