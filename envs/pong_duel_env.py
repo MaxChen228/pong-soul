@@ -85,8 +85,8 @@ class PongDuelEnv(gym.Env):
         self.clock = None
 
         # 時間減速機制
-        self.time_slow_active = False
-        self.time_slow_energy = 1.0
+        # self.time_slow_active = False
+        # self.time_slow_energy = 1.0
 
         # 初始化技能
         self.skills = {}
@@ -100,6 +100,9 @@ class PongDuelEnv(gym.Env):
         self.freeze_duration = 500  # 毫秒 (0.5秒)
         self.last_player_hit_time = 0
         self.last_ai_hit_time = 0
+
+        self.time_scale = 1.0  # 統一用來控制遊戲速度 (1.0 正常速度，<1 時間變慢)
+
 
     def set_params_from_config(self, config):
         # 設定參數由關卡設定讀入
@@ -224,21 +227,11 @@ class PongDuelEnv(gym.Env):
         # 判斷技能效果（使用動態名稱）
         active_skill = self.skills[self.active_skill_name]
 
-        # 根據不同技能設定不同效果 (可彈性新增)
-        if self.active_skill_name == "slowmo":
-            self.time_slow_active = active_skill.is_active()
-            self.time_slow_energy = active_skill.get_energy_ratio()
-        else:
-            self.time_slow_active = False
-            self.time_slow_energy = 0
-
-        time_scale = 0.3 if self.time_slow_active else 1.0
+        time_scale = self.time_scale  # 統一使用新的變數
 
         # === 玩家 / AI 控制 ===
         # Combo 強化：時間變慢時玩家移動更快
-        combo_boost = 1.0
-        if self.time_slow_active:
-            combo_boost = 2.0  # 2 倍移動速度
+        combo_boost = 2.0 if self.time_scale < 1.0 else 1.0
         if player_action == 0:
             self.player_x -= 0.03 * time_scale * combo_boost
         elif player_action == 2:
@@ -337,6 +330,14 @@ class PongDuelEnv(gym.Env):
             self.player_trail.clear()
         # 技能狀態更新邏輯 (step方法最後)
         current_time = pygame.time.get_ticks()
+        # ⭐️ 控制遊戲速度（time_scale）
+        active_skill = self.skills.get(self.active_skill_name)
+
+        if self.active_skill_name == "slowmo" and active_skill and active_skill.is_active():
+            self.time_scale = 0.3  # Slowmo啟動時，遊戲速度變慢為30%
+        else:
+            self.time_scale = 1.0  # Slowmo未啟動時，恢復正常速度
+        time_scale = self.time_scale  # 明確使用新定義的time_scale
 
         # Slowmo技能狀態控制（霧氣淡出效果啟動）
         slowmo_skill = self.skills.get('slowmo')

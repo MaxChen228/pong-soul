@@ -28,7 +28,11 @@ class GameSettings:
     LONG_PADDLE_ANIMATION_MS = 300            # 板子拉伸動畫的持續時間（毫秒）
 
     # 技能選擇設定（一次只能一個）
-    ACTIVE_SKILL = "long_paddle"  # 可選值："slowmo" 或 "long_paddle"
+    ACTIVE_SKILL = "slowmo"  # 可選值："slowmo" 或 "long_paddle"
+
+    # 技能條滿能量拖曳線特效設定
+    SKILL_BAR_TRAIL_COLOR = (255, 255, 255)  # 拖曳線顏色（白色）
+    SKILL_BAR_TRAIL_LENGTH = 15  # 拖曳線的殘影數量
 
     # 其他參數設定（略）
     FREEZE_DURATION_MS = 500

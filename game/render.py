@@ -38,7 +38,9 @@ class Renderer:
         offset_y = self.offset_y
 
         # === 衝擊波觸發 ===
-        if self.env.time_slow_active:
+        active_skill = self.env.skills.get(self.env.active_skill_name)
+        if active_skill and active_skill.is_active() and self.env.active_skill_name == "slowmo":
+
             if not hasattr(self.env, 'shockwaves'):
                 self.env.shockwaves = []
             if not hasattr(self.env, 'last_slowmo_frame'):
@@ -66,7 +68,12 @@ class Renderer:
                 self.window.blit(overlay, (0, 0))
 
         # UI區塊背景
-        ui_overlay_color = (20, 20, 100) if self.env.time_slow_active else tuple(max(0, c - 20) for c in Style.BACKGROUND_COLOR)
+        active_skill = self.env.skills.get(self.env.active_skill_name)
+        if active_skill and active_skill.is_active() and self.env.active_skill_name == "slowmo":
+            ui_overlay_color = (20, 20, 100)
+        else:
+            ui_overlay_color = tuple(max(0, c - 20) for c in Style.BACKGROUND_COLOR)
+
         pygame.draw.rect(self.window, ui_overlay_color, (0, 0, self.render_size, offset_y))
         pygame.draw.rect(self.window, ui_overlay_color, (0, offset_y + self.render_size, self.render_size, offset_y))
 
@@ -260,7 +267,9 @@ class Renderer:
 
 
         # 技能滿能量時的追跡線效果（加入殘影）
-        if self.env.time_slow_energy >= 1.0:
+        active_skill = self.env.skills[self.env.active_skill_name]
+        if active_skill.has_full_energy_effect():
+
             glow_rect = pygame.Rect(slow_bar_x - 2, slow_bar_y - 2, slow_bar_width + 4, slow_bar_height + 4)
 
             # 更新追跡線位置
