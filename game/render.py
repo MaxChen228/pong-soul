@@ -1,4 +1,5 @@
 # game/render.py
+import math
 import pygame
 from game.theme import Style
 from game.settings import GameSettings
@@ -336,6 +337,50 @@ class Renderer:
         else:
             self.skill_glow_position = 0  # 重置光點位置
             self.skill_glow_trail.clear()  # 清除殘影
+
+            
+        # === Slowmo技能時鐘特效 (明確新增這整段) ===
+        active_skill = self.env.skills.get(self.env.active_skill_name)
+
+        # 只有在slowmo技能啟動期間才顯示時鐘特效
+        if active_skill and active_skill.is_active() and self.env.active_skill_name == "slowmo":
+            # 計算技能的剩餘時間比例 (0 到 1)
+            energy_ratio = active_skill.get_energy_ratio()
+
+            # 計算時鐘指針的角度（隨著能量消耗繞圈360度）
+            angle_deg = (1 - energy_ratio) * 360
+            angle_rad = math.radians(angle_deg)
+
+            # 時鐘的繪製位置（螢幕中央）
+            clock_center = (self.render_size // 2, self.render_size // 2)
+
+            # 繪製時鐘的半透明背景圓圈
+            clock_surface = pygame.Surface((GameSettings.SLOWMO_CLOCK_RADIUS * 2 + 10, 
+                                            GameSettings.SLOWMO_CLOCK_RADIUS * 2 + 10), pygame.SRCALPHA)
+            pygame.draw.circle(
+                clock_surface,
+                GameSettings.SLOWMO_CLOCK_COLOR,
+                (GameSettings.SLOWMO_CLOCK_RADIUS + 5, GameSettings.SLOWMO_CLOCK_RADIUS + 5),
+                GameSettings.SLOWMO_CLOCK_RADIUS
+            )
+
+            # 繪製時鐘指針
+            needle_length = GameSettings.SLOWMO_CLOCK_RADIUS - 5
+            needle_end_pos = (
+                (GameSettings.SLOWMO_CLOCK_RADIUS + 5) + needle_length * math.cos(angle_rad - math.pi/2),
+                (GameSettings.SLOWMO_CLOCK_RADIUS + 5) + needle_length * math.sin(angle_rad - math.pi/2)
+            )
+            pygame.draw.line(
+                clock_surface,
+                (255, 255, 255),  # 指針顏色 (白色)
+                (GameSettings.SLOWMO_CLOCK_RADIUS + 5, GameSettings.SLOWMO_CLOCK_RADIUS + 5),
+                needle_end_pos,
+                GameSettings.SLOWMO_CLOCK_LINE_WIDTH
+            )
+
+            # 將時鐘渲染到主畫面
+            clock_rect = clock_surface.get_rect(center=clock_center)
+            self.window.blit(clock_surface, clock_rect)
 
         pygame.display.flip()
         self.clock.tick(60)

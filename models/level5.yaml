@@ -1,10 +1,10 @@
 initial_direction: "up"
 initial_angle_deg_range: [-60, 60]
-initial_speed: 0.03
+initial_speed: 0.04
 enable_spin: true
-magnus_factor: 0.03
+magnus_factor: 0.04
 speed_increment: 0.003
-speed_scale_every: 3
+speed_scale_every: 2
 player_life: 3
 ai_life: 3
 player_paddle_width: 100

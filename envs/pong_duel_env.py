@@ -231,7 +231,7 @@ class PongDuelEnv(gym.Env):
 
         # === 玩家 / AI 控制 ===
         # Combo 強化：時間變慢時玩家移動更快
-        combo_boost = 2.0 if self.time_scale < 1.0 else 1.0
+        combo_boost = 5.0 if self.time_scale < 1.0 else 1.0
         if player_action == 0:
             self.player_x -= 0.03 * time_scale * combo_boost
         elif player_action == 2:
@@ -247,7 +247,7 @@ class PongDuelEnv(gym.Env):
         # Magnus effect 簡化模型（可升級）
         if self.enable_spin:
             self.ball_vx += self.magnus_factor * self.spin * self.ball_vy
-        self.spin *= 0.99
+        self.spin *= 1.0
 
         # 更新球位置
         self.ball_x += self.ball_vx * time_scale
@@ -334,7 +334,7 @@ class PongDuelEnv(gym.Env):
         active_skill = self.skills.get(self.active_skill_name)
 
         if self.active_skill_name == "slowmo" and active_skill and active_skill.is_active():
-            self.time_scale = 0.3  # Slowmo啟動時，遊戲速度變慢為30%
+            self.time_scale = 0.2  # Slowmo啟動時，遊戲速度變慢為30%
         else:
             self.time_scale = 1.0  # Slowmo未啟動時，恢復正常速度
         time_scale = self.time_scale  # 明確使用新定義的time_scale
