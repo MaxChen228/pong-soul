@@ -347,9 +347,15 @@ class PongDuelEnv(gym.Env):
                 self.slowmo_fog_active = True  # 啟動期間保持啟用
                 self.slowmo_fog_end_time = current_time + GameSettings.SLOWMO_FOG_DURATION_MS
             elif self.slowmo_fog_active and current_time > self.slowmo_fog_end_time:
+                print(f"[{pygame.time.get_ticks()}] Resetting slowmo_fog_active to False. Paddle color reset.")
                 self.slowmo_fog_active = False
                 self.paddle_color = None  # 恢復預設顏色
 
+                # --- 在這裡強制清除 shockwaves 列表 ---
+                if hasattr(self, 'shockwaves') and isinstance(self.shockwaves, list):
+                    print(f"[{pygame.time.get_ticks()}] Clearing shockwaves list in env state update.")
+                    self.shockwaves.clear()
+                # --- 清除完畢 ---
         # Long Paddle 技能動畫控制（完全修正版）
         long_paddle_skill = self.skills.get('long_paddle')
         current_time = pygame.time.get_ticks()

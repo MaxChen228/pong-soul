@@ -22,7 +22,7 @@ class GameSettings:
     # 技能特效設定（新增）
     SLOWMO_PADDLE_COLOR = (0, 150, 255)       # 時間暫停時的板子顏色
     SLOWMO_GLOW_COLOR = (0, 150, 255, 100)    # 板子周圍的光圈顏色 (RGBA，含透明度)
-    SLOWMO_FOG_DURATION_MS = 800              # 技能結束後霧氣淡出的時間（毫秒）
+    SLOWMO_FOG_DURATION_MS = 2000              # 技能結束後霧氣淡出的時間（毫秒）
 
     LONG_PADDLE_COLOR = (0, 255, 100)         # 板子變長時的顏色
     LONG_PADDLE_ANIMATION_MS = 300            # 板子拉伸動畫的持續時間（毫秒）
