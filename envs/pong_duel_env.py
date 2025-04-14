@@ -7,8 +7,9 @@ from game.theme import Style
 from game.physics import collide_sphere_with_moving_plane
 from game.sound import SoundManager  # 引入 SoundManager 類
 from game.render import Renderer
+from game.settings import GameSettings
 from game.skills.slowmo_skill import SlowMoSkill
-
+from game.skills.long_paddle_skill import LongPaddleSkill
 
 class PongDuelEnv(gym.Env):
     def __init__(self, render_size=400, paddle_width=60, paddle_height=10, ball_radius=10):
@@ -84,9 +85,9 @@ class PongDuelEnv(gym.Env):
         self.time_slow_active = False
         self.time_slow_energy = 1.0
 
-        # 技能初始化
+        # 初始化技能
         self.skills = {}
-        self.register_skill('slowmo', SlowMoSkill(self))
+        self.active_skill_name = None
 
         # 球圖像（圖片載入延後到 render）
         self.ball_image = None
@@ -117,6 +118,25 @@ class PongDuelEnv(gym.Env):
         self.ai_paddle_width = config.get('ai_paddle_width', 60)
         # ⭐️ 載入背景音樂
         self.bg_music = config.get("bg_music", "bg_music.mp3")  # 預設值防止出錯
+
+        # 🔥 移到這裡！確保上面參數都已初始化再註冊技能
+        available_skills = {
+            'slowmo': SlowMoSkill,
+            'long_paddle': LongPaddleSkill
+        }
+
+        active_skill_name = GameSettings.ACTIVE_SKILL
+        active_skill_class = available_skills.get(active_skill_name)
+
+        if active_skill_class is None:
+            raise ValueError(f"Skill '{active_skill_name}' not found!")
+
+        # 清空技能並重新註冊，避免重複
+        self.skills.clear()
+        self.register_skill(active_skill_name, active_skill_class(self))
+
+        # 設定目前啟動的技能名稱
+        self.active_skill_name = active_skill_name
         
     def reset(self):
         # 重置狀態（球位置、板子位置、速度）
@@ -177,15 +197,24 @@ class PongDuelEnv(gym.Env):
 
         # 按下空白鍵觸發slowmo技能
         if keys[pygame.K_SPACE]:
-            self.skills["slowmo"].activate()
+            self.skills[self.active_skill_name].activate()
+
 
         # 更新所有技能狀態
         for skill in self.skills.values():
             skill.update()
 
-        # 判斷技能效果
-        self.time_slow_active = self.skills["slowmo"].is_active()
-        self.time_slow_energy = self.skills["slowmo"].get_energy_ratio()
+        # 判斷技能效果（使用動態名稱）
+        active_skill = self.skills[self.active_skill_name]
+
+        # 根據不同技能設定不同效果 (可彈性新增)
+        if self.active_skill_name == "slowmo":
+            self.time_slow_active = active_skill.is_active()
+            self.time_slow_energy = active_skill.get_energy_ratio()
+        else:
+            self.time_slow_active = False
+            self.time_slow_energy = 0
+
         time_scale = 0.3 if self.time_slow_active else 1.0
 
         # === 玩家 / AI 控制 ===

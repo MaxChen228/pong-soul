@@ -1,6 +1,7 @@
 # game/render.py
 import pygame
 from game.theme import Style
+from game.settings import GameSettings
 
 class Renderer:
     def __init__(self, env):
@@ -156,11 +157,27 @@ class Renderer:
         slow_bar_x = self.render_size - slow_bar_width - slow_bar_spacing
         slow_bar_y = self.render_size + offset_y + self.env.paddle_height + slow_bar_spacing
         pygame.draw.rect(self.window, (50, 50, 50), (slow_bar_x, slow_bar_y, slow_bar_width, slow_bar_height))
-        pygame.draw.rect(self.window, (0, 200, 255), (slow_bar_x, slow_bar_y, slow_bar_width * self.env.time_slow_energy, slow_bar_height))
-        slowmo_skill = self.env.skills["slowmo"]
-        cooldown_seconds = slowmo_skill.get_cooldown_seconds()
+        
+        active_skill = self.env.skills[self.env.active_skill_name]
 
-        if not slowmo_skill.is_active() and cooldown_seconds > 0:
+        # 根據技能名稱調整顏色
+        skill_colors = {
+            'slowmo': GameSettings.SLOWMO_BAR_COLOR,
+            'long_paddle': GameSettings.LONG_PADDLE_BAR_COLOR,
+        }
+
+        bar_color = skill_colors.get(self.env.active_skill_name, (255, 255, 255))  # 預設白色避免錯誤
+
+        pygame.draw.rect(
+            self.window,
+            bar_color,
+            (slow_bar_x, slow_bar_y, slow_bar_width * active_skill.get_energy_ratio(), slow_bar_height)
+        )
+
+        # 顯示冷卻時間
+        cooldown_seconds = active_skill.get_cooldown_seconds()
+
+        if not active_skill.is_active() and cooldown_seconds > 0:
             cooldown_text = f"{cooldown_seconds:.1f}"
 
             cooldown_font = Style.get_font(14)
@@ -172,6 +189,7 @@ class Renderer:
             ))
 
             self.window.blit(cooldown_surface, cooldown_rect)
+
 
 
         # 技能滿能量時的追跡線效果（加入殘影）
@@ -199,7 +217,38 @@ class Renderer:
                 self.skill_glow_trail.pop(0)
 
             # 畫外框
-            pygame.draw.rect(self.window, (255, 255, 255), glow_rect, 2)
+            active_skill = self.env.skills[self.env.active_skill_name]
+
+            # 根據技能名稱調整顏色
+            skill_colors = {
+                'slowmo': GameSettings.SLOWMO_BAR_COLOR,
+                'long_paddle': GameSettings.LONG_PADDLE_BAR_COLOR,
+            }
+
+            bar_color = skill_colors.get(self.env.active_skill_name, (255, 255, 255))  # 預設白色避免錯誤
+
+            pygame.draw.rect(
+                self.window,
+                bar_color,
+                (slow_bar_x, slow_bar_y, slow_bar_width * active_skill.get_energy_ratio(), slow_bar_height)
+            )
+
+            # 顯示冷卻時間
+            cooldown_seconds = active_skill.get_cooldown_seconds()
+
+            if not active_skill.is_active() and cooldown_seconds > 0:
+                cooldown_text = f"{cooldown_seconds:.1f}"
+
+                cooldown_font = Style.get_font(14)
+                cooldown_surface = cooldown_font.render(cooldown_text, True, Style.TEXT_COLOR)
+
+                cooldown_rect = cooldown_surface.get_rect(center=(
+                    slow_bar_x + slow_bar_width / 2,
+                    slow_bar_y + slow_bar_height + 15
+                ))
+
+                self.window.blit(cooldown_surface, cooldown_rect)
+
 
             # 畫拖曳殘影效果
             for i, pos in enumerate(self.skill_glow_trail):
