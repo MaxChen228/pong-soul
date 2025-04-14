@@ -16,8 +16,11 @@ class GameSettings:
     # 技能條顏色（板子變長技能專屬）
     LONG_PADDLE_BAR_COLOR = (0, 100, 0)  # 綠色
     SLOWMO_BAR_COLOR = (0, 200, 255)
+    # 技能視覺效果設定 (新增這個區塊)
+    SLOWMO_TRAIL_COLOR = (0, 200, 255)  # slowmo 技能板子殘影顏色（淡藍色）
+
     # 技能選擇設定（一次只能一個）
-    ACTIVE_SKILL = "long_paddle"  # 可選值："slowmo" 或 "long_paddle"
+    ACTIVE_SKILL = "slowmo"  # 可選值："slowmo" 或 "long_paddle"
 
     # 其他參數設定（略）
     FREEZE_DURATION_MS = 500

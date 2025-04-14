@@ -89,6 +89,30 @@ class Renderer:
         rotated_ball = pygame.transform.rotate(self.ball_image, self.ball_angle)
         rotated_rect = rotated_ball.get_rect(center=(cx, cy))
         self.window.blit(rotated_ball, rotated_rect)
+        
+        # Slowmo 技能板子殘影效果（完整且清晰新增這整段）
+        active_skill = self.env.skills.get(self.env.active_skill_name, None)
+
+        if active_skill and active_skill.is_active() and self.env.active_skill_name == "slowmo":
+            for i, trail_x in enumerate(self.env.player_trail):
+                fade_ratio = (i + 1) / len(self.env.player_trail)
+                trail_alpha = int(200 * fade_ratio)  # 透明度逐漸加深
+
+                # 創建透明Surface繪製殘影
+                trail_surface = pygame.Surface(
+                    (self.env.player_paddle_width, self.env.paddle_height), 
+                    pygame.SRCALPHA
+                )
+                # 使用settings中的顏色
+                trail_color = (*GameSettings.SLOWMO_TRAIL_COLOR, trail_alpha)
+                trail_surface.fill(trail_color)
+
+                trail_rect = trail_surface.get_rect(center=(
+                    int(trail_x * self.render_size),
+                    offset_y + self.render_size - self.env.paddle_height // 2
+                ))
+
+                self.window.blit(trail_surface, trail_rect)
 
         # 畫板子
         pygame.draw.rect(self.window, Style.PLAYER_COLOR, (

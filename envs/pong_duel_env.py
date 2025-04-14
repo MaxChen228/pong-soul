@@ -21,6 +21,9 @@ class PongDuelEnv(gym.Env):
         # ========== 渲染管理 ==========
         self.renderer = None  # ⭐ 新增這一行解決錯誤
 
+        self.player_trail = []  # 新增：玩家板子殘影位置紀錄
+        self.max_player_trail_length = 15  # 新增：最多殘影數量
+
         # ========== 物理參數 ==========
         self.mass = 1.0       # kg
         self.radius = 0.02    # m
@@ -305,8 +308,19 @@ class PongDuelEnv(gym.Env):
                 for skill in self.skills.values():
                     skill.deactivate()
                 return self._get_obs(), reward, True, False, {}
+            
+        # ⭐️ 在 step() 方法的最後（玩家位置更新後）清楚加入：
+        active_skill = self.skills.get(self.active_skill_name, None)
 
-
+        if active_skill and active_skill.is_active() and self.active_skill_name == "slowmo":
+            # 記錄目前位置到殘影
+            self.player_trail.append(self.player_x)
+            # 控制最大殘影數量
+            if len(self.player_trail) > self.max_player_trail_length:
+                self.player_trail.pop(0)
+        else:
+            # 沒有啟動技能就清空殘影紀錄
+            self.player_trail.clear()
 
         return self._get_obs(), reward, False, False, {}
 
