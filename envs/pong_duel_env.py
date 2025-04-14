@@ -118,6 +118,7 @@ class PongDuelEnv(gym.Env):
         self.ai_max_life = config.get('ai_max_life', self.ai_life)
 
         self.player_paddle_width = config.get('player_paddle_width', 60)
+        self.long_paddle_original_width = self.player_paddle_width  # ⭐️ 明確初始化原始板子長度
         self.ai_paddle_width = config.get('ai_paddle_width', 60)
         # ⭐️ 載入背景音樂
         self.bg_music = config.get("bg_music", "bg_music.mp3")  # 預設值防止出錯
@@ -140,6 +141,19 @@ class PongDuelEnv(gym.Env):
 
         # 設定目前啟動的技能名稱
         self.active_skill_name = active_skill_name
+
+        # 新增以下狀態控制參數（技能特效用）
+        self.paddle_color = None  # 目前板子顏色，None 表示使用預設主題顏色
+
+        # Slowmo 霧氣淡出效果
+        self.slowmo_fog_active = False
+        self.slowmo_fog_end_time = 0  # 霧氣淡出的結束時間點（時間戳）
+
+        # Long paddle 動畫效果
+        self.long_paddle_animating = False
+        self.long_paddle_animation_start_time = 0
+        self.long_paddle_target_width = None
+
         
     def reset(self):
         # 重置狀態（球位置、板子位置、速度）
@@ -321,9 +335,66 @@ class PongDuelEnv(gym.Env):
         else:
             # 沒有啟動技能就清空殘影紀錄
             self.player_trail.clear()
+        # 技能狀態更新邏輯 (step方法最後)
+        current_time = pygame.time.get_ticks()
+
+        # Slowmo技能狀態控制（霧氣淡出效果啟動）
+        slowmo_skill = self.skills.get('slowmo')
+        if slowmo_skill:
+            if slowmo_skill.is_active():
+                self.paddle_color = GameSettings.SLOWMO_PADDLE_COLOR
+                self.slowmo_fog_active = True  # 啟動期間保持啟用
+                self.slowmo_fog_end_time = current_time + GameSettings.SLOWMO_FOG_DURATION_MS
+            elif self.slowmo_fog_active and current_time > self.slowmo_fog_end_time:
+                self.slowmo_fog_active = False
+                self.paddle_color = None  # 恢復預設顏色
+
+        # Long Paddle 技能動畫控制（完全修正版）
+        long_paddle_skill = self.skills.get('long_paddle')
+        current_time = pygame.time.get_ticks()
+
+        if long_paddle_skill:
+            if long_paddle_skill.is_active():
+                if not self.long_paddle_animating:
+                    # 技能剛啟動，初始化動畫
+                    self.long_paddle_animating = True
+                    self.long_paddle_animation_start_time = current_time
+                    self.long_paddle_original_width = self.long_paddle_original_width or self.player_paddle_width
+                    self.long_paddle_target_width = int(self.long_paddle_original_width * GameSettings.LONG_PADDLE_MULTIPLIER)
+
+                elapsed = current_time - self.long_paddle_animation_start_time
+                if elapsed < GameSettings.LONG_PADDLE_ANIMATION_MS:
+                    ratio = elapsed / GameSettings.LONG_PADDLE_ANIMATION_MS
+                    self.player_paddle_width = int(self.long_paddle_original_width + 
+                                                (self.long_paddle_target_width - self.long_paddle_original_width) * ratio)
+                else:
+                    self.player_paddle_width = self.long_paddle_target_width
+
+                self.paddle_color = GameSettings.LONG_PADDLE_COLOR
+
+            else:
+                if self.long_paddle_animating or self.player_paddle_width != self.long_paddle_original_width:
+                    # 技能結束時立即重置動畫計時
+                    if self.long_paddle_animating:
+                        self.long_paddle_animating = False
+                        self.long_paddle_animation_start_time = current_time
+
+                    elapsed = current_time - self.long_paddle_animation_start_time
+                    if elapsed < GameSettings.LONG_PADDLE_ANIMATION_MS:
+                        ratio = elapsed / GameSettings.LONG_PADDLE_ANIMATION_MS
+                        self.player_paddle_width = int(self.long_paddle_target_width - 
+                                                    (self.long_paddle_target_width - self.long_paddle_original_width) * ratio)
+                    else:
+                        self.player_paddle_width = self.long_paddle_original_width
+
+                    # ⭐️ 顏色恢復應在這裡明確執行 ⭐️
+                    if elapsed >= GameSettings.LONG_PADDLE_ANIMATION_MS or self.player_paddle_width == self.long_paddle_original_width:
+                        self.paddle_color = None  # 確保顏色恢復
+
+
 
         return self._get_obs(), reward, False, False, {}
-
+        
     def render(self):
         if self.renderer is None:
             self.renderer = Renderer(self)

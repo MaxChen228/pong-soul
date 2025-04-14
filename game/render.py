@@ -114,13 +114,56 @@ class Renderer:
 
                 self.window.blit(trail_surface, trail_rect)
 
-        # 畫板子
-        pygame.draw.rect(self.window, Style.PLAYER_COLOR, (
+        # ---⭐ Slowmo板子光圈與顏色特效 ⭐---
+        paddle_color = self.env.paddle_color or Style.PLAYER_COLOR
+
+        # Slowmo光圈效果
+        slowmo_skill = self.env.skills.get('slowmo')
+        if slowmo_skill and slowmo_skill.is_active():
+            glow_radius = 15  # 光圈範圍
+            glow_surface = pygame.Surface((self.env.player_paddle_width + glow_radius*2, self.env.paddle_height + glow_radius*2), pygame.SRCALPHA)
+
+            # 光圈逐層繪製 (漸層陰影效果)
+            for i in range(glow_radius, 0, -3):
+                alpha = int(GameSettings.SLOWMO_GLOW_COLOR[3] * (i/glow_radius))
+                color = (*GameSettings.SLOWMO_GLOW_COLOR[:3], alpha)
+                pygame.draw.rect(
+                    glow_surface,
+                    color,
+                    (glow_radius - i, glow_radius - i, self.env.player_paddle_width + 2*i, self.env.paddle_height + 2*i),
+                    border_radius=8
+                )
+
+            glow_rect = glow_surface.get_rect(center=(
+                px,
+                offset_y + self.render_size - self.env.paddle_height // 2
+            ))
+            self.window.blit(glow_surface, glow_rect)
+        # ---⭐ Slowmo結束後霧氣淡出效果 ⭐---
+        current_time = pygame.time.get_ticks()
+        if self.env.slowmo_fog_active and slowmo_skill and not slowmo_skill.is_active():
+            remaining_ratio = (self.env.slowmo_fog_end_time - current_time) / GameSettings.SLOWMO_FOG_DURATION_MS
+            fog_alpha = int(100 * remaining_ratio)
+
+            if fog_alpha > 0:
+                fog_surface = pygame.Surface((self.env.player_paddle_width + 30, self.env.paddle_height + 30), pygame.SRCALPHA)
+                fog_surface.fill((*GameSettings.SLOWMO_PADDLE_COLOR, fog_alpha))
+                
+                fog_rect = fog_surface.get_rect(center=(
+                    px,
+                    offset_y + self.render_size - self.env.paddle_height // 2
+                ))
+                
+                self.window.blit(fog_surface, fog_rect)
+
+        # 板子本體繪製 (帶顏色變化)
+        pygame.draw.rect(self.window, paddle_color, (
             px - self.env.player_paddle_width // 2,
             offset_y + self.render_size - self.env.paddle_height,
             self.env.player_paddle_width,
             self.env.paddle_height
-        ))
+        ), border_radius=8)
+
         pygame.draw.rect(self.window, Style.AI_COLOR, (
             ax - self.env.ai_paddle_width // 2,
             offset_y,

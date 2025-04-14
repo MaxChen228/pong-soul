@@ -19,8 +19,16 @@ class GameSettings:
     # 技能視覺效果設定 (新增這個區塊)
     SLOWMO_TRAIL_COLOR = (0, 200, 255)  # slowmo 技能板子殘影顏色（淡藍色）
 
+    # 技能特效設定（新增）
+    SLOWMO_PADDLE_COLOR = (0, 150, 255)       # 時間暫停時的板子顏色
+    SLOWMO_GLOW_COLOR = (0, 150, 255, 100)    # 板子周圍的光圈顏色 (RGBA，含透明度)
+    SLOWMO_FOG_DURATION_MS = 800              # 技能結束後霧氣淡出的時間（毫秒）
+
+    LONG_PADDLE_COLOR = (0, 255, 100)         # 板子變長時的顏色
+    LONG_PADDLE_ANIMATION_MS = 300            # 板子拉伸動畫的持續時間（毫秒）
+
     # 技能選擇設定（一次只能一個）
-    ACTIVE_SKILL = "slowmo"  # 可選值："slowmo" 或 "long_paddle"
+    ACTIVE_SKILL = "long_paddle"  # 可選值："slowmo" 或 "long_paddle"
 
     # 其他參數設定（略）
     FREEZE_DURATION_MS = 500
