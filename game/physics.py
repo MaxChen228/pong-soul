@@ -46,3 +46,72 @@ def simulate_collision_standard(vx, vy, omega, e, mu, m, R):
         omega_prime = omega - (R * J_t)/I
 
     return vx_prime, vy_prime, omega_prime
+
+def handle_paddle_collision(
+    ball_x, ball_y,
+    old_ball_y,
+    ball_vx, ball_vy,
+    spin,
+    paddle_x, paddle_y, prev_paddle_x,
+    paddle_width,
+    radius,
+    time_scale,
+    mass, R, e, mu,
+    is_ai=False
+):
+    """
+    統一處理「球 與 AI擋板 or 玩家擋板」的碰撞。
+    回傳:
+      (ball_x, ball_y, ball_vx, ball_vy, spin, collided_bool)
+      collided_bool 表示本幀是否真的撞到擋板
+    is_ai=True => 表示AI擋板(上方), False => 玩家擋板(下方)
+    """
+
+    # 1) 判斷是否穿越到擋板那邊
+    collided = False
+    if is_ai:
+        # AI擋板在 paddle_y 上方
+        # 若舊 y > paddle_y, 新 y <= paddle_y => 可能撞到
+        if old_ball_y > paddle_y and ball_y <= paddle_y:
+            # 是否 x範圍內
+            half_w = paddle_width / 2
+            if abs(ball_x - paddle_x) < half_w + radius:
+                # 撞到
+                collided = True
+                # 校正 y，避免穿透
+                ball_y = paddle_y
+
+                # 計算 vn, vt, u
+                vn = ball_vy   # 上方擋板 => normal朝下 => ball_vy 即 vn
+                vt = ball_vx
+                u = (paddle_x - prev_paddle_x) / time_scale
+                # 呼叫原 collide_sphere_with_moving_plane
+                from game.physics import collide_sphere_with_moving_plane
+                vn_post, vt_post, omega_post = collide_sphere_with_moving_plane(
+                    vn, vt, u, spin, e, mu, mass, R
+                )
+                ball_vy = vn_post
+                ball_vx = vt_post
+                spin = omega_post
+
+    else:
+        # 玩家擋板(下方)
+        # 若舊 y < paddle_y, 新 y >= paddle_y => 可能撞到
+        if old_ball_y < paddle_y and ball_y >= paddle_y:
+            half_w = paddle_width / 2
+            if abs(ball_x - paddle_x) < half_w + radius:
+                collided = True
+                ball_y = paddle_y
+
+                vn = -ball_vy   # 下方擋板 => normal朝上 => ball_vy>0 => vn = -ball_vy
+                vt = ball_vx
+                u = (paddle_x - prev_paddle_x) / time_scale
+                from game.physics import collide_sphere_with_moving_plane
+                vn_post, vt_post, omega_post = collide_sphere_with_moving_plane(
+                    vn, vt, u, spin, e, mu, mass, R
+                )
+                ball_vy = -vn_post
+                ball_vx = vt_post
+                spin = omega_post
+
+    return (ball_x, ball_y, ball_vx, ball_vy, spin, collided)
