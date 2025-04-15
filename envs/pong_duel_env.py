@@ -264,21 +264,33 @@ class PongDuelEnv(gym.Env):
 
         reward = 0
 
-        # AI 擋板
+        # ------------------------------------------------
+        # AI 擋板（上方）：維持真實物理碰撞
         ai_y = self.paddle_height / self.render_size
         ai_half_width = self.ai_paddle_width / self.render_size / 2
         if old_ball_y > ai_y and self.ball_y <= ai_y:
             if abs(self.ball_x - self.ai_x) < ai_half_width + self.radius:
+                # 真實物理處理
                 self.ball_y = ai_y
-                self.ball_vy *= -1
+                vn = self.ball_vy 
+                vt = self.ball_vx
+                u = (self.ai_x - self.prev_ai_x) / time_scale
+                omega = self.spin
+
+                vn_post, vt_post, omega_post = collide_sphere_with_moving_plane(
+                    vn, vt, u, omega,
+                    self.e, self.mu, self.mass, self.radius
+                )
+                self.ball_vy = vn_post
+                self.ball_vx = vt_post
+                self.spin = omega_post
+
                 self.bounces += 1
                 self._scale_difficulty()
-                paddle_velocity = self.ai_x - self.prev_ai_x
-                self.spin = np.clip(paddle_velocity * 100, -3, 3)
             else:
                 self.ai_life -= 1
-                self.last_ai_hit_time = pygame.time.get_ticks()
-                self.freeze_timer = pygame.time.get_ticks()
+                self.last_ai_hit_time = current_time
+                self.freeze_timer = current_time
                 for skill in self.skills.values():
                     skill.deactivate()
                 return self._get_obs(), reward, True, False, {}
