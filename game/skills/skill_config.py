@@ -15,6 +15,8 @@ SKILL_CONFIGS = {
 
         # 新增 bar_color
         "bar_color": (0, 200, 255),     # 用來顯示技能條的顏色 (過去 GameSettings.SLOWMO_BAR_COLOR)
+
+        # 新增：時鐘參數（原本放在 GameSettings）
         "clock_color": (255, 255, 255, 100),
         "clock_radius": 50,
         "clock_line_width": 4,

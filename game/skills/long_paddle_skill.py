@@ -26,6 +26,8 @@ class LongPaddleSkill(Skill):
         self.is_animating = False
         self.anim_start_time = 0
 
+        self.current_width_at_anim_start = self.original_paddle_width
+
     def activate(self):
         current_time = pygame.time.get_ticks()
         if not self.active and (current_time - self.cooldown_start_time) >= self.cooldown_ms:
@@ -95,9 +97,12 @@ class LongPaddleSkill(Skill):
         if self.active:
             self.active = False
             self.cooldown_start_time = pygame.time.get_ticks()
-            # 進入「縮回」動畫階段
             self.is_animating = True
             self.anim_start_time = pygame.time.get_ticks()
+            # 直接確保板子恢復顏色
+            # （如果你還想做漸變動畫，可留在 update() 做細微調整，
+            #  不過至少不會一直保持 "技能顏色"。）
+            self.env.paddle_color = None
 
     def is_active(self):
         return self.active

@@ -370,57 +370,57 @@ class PongDuelEnv(gym.Env):
                 if hasattr(self, 'shockwaves') and isinstance(self.shockwaves, list):
                     self.shockwaves.clear()
 
-        # === long paddle 技能動畫處理 ===
-        long_paddle_skill = self.skills.get('long_paddle')
-        if long_paddle_skill:
-            lp_cfg = SKILL_CONFIGS["long_paddle"]
-            animation_ms = lp_cfg["animation_ms"]
+        # # === long paddle 技能動畫處理 ===
+        # long_paddle_skill = self.skills.get('long_paddle')
+        # if long_paddle_skill:
+        #     lp_cfg = SKILL_CONFIGS["long_paddle"]
+        #     animation_ms = lp_cfg["animation_ms"]
 
-            if long_paddle_skill.is_active():
-                if not self.long_paddle_animating:
-                    self.long_paddle_animating = True
-                    self.long_paddle_animation_start_time = current_time
-                    self.long_paddle_original_width = (
-                        self.long_paddle_original_width or self.player_paddle_width
-                    )
-                    # 透過 config 取 multiplier
-                    self.long_paddle_target_width = int(
-                        self.long_paddle_original_width * lp_cfg["paddle_multiplier"]
-                    )
+        #     if long_paddle_skill.is_active():
+        #         if not self.long_paddle_animating:
+        #             self.long_paddle_animating = True
+        #             self.long_paddle_animation_start_time = current_time
+        #             self.long_paddle_original_width = (
+        #                 self.long_paddle_original_width or self.player_paddle_width
+        #             )
+        #             # 透過 config 取 multiplier
+        #             self.long_paddle_target_width = int(
+        #                 self.long_paddle_original_width * lp_cfg["paddle_multiplier"]
+        #             )
 
-                elapsed = current_time - self.long_paddle_animation_start_time
-                if elapsed < animation_ms:
-                    ratio = elapsed / animation_ms
-                    self.player_paddle_width = int(
-                        self.long_paddle_original_width
-                        + (self.long_paddle_target_width - self.long_paddle_original_width) * ratio
-                    )
-                else:
-                    self.player_paddle_width = self.long_paddle_target_width
+        #         elapsed = current_time - self.long_paddle_animation_start_time
+        #         if elapsed < animation_ms:
+        #             ratio = elapsed / animation_ms
+        #             self.player_paddle_width = int(
+        #                 self.long_paddle_original_width
+        #                 + (self.long_paddle_target_width - self.long_paddle_original_width) * ratio
+        #             )
+        #         else:
+        #             self.player_paddle_width = self.long_paddle_target_width
 
-                # 設定板子顏色
-                self.paddle_color = lp_cfg["paddle_color"]
+        #         # 設定板子顏色
+        #         self.paddle_color = lp_cfg["paddle_color"]
 
-            else:
-                # 技能結束 => 做縮回動畫
-                if self.long_paddle_animating or (self.player_paddle_width != self.long_paddle_original_width):
-                    if self.long_paddle_animating:
-                        self.long_paddle_animating = False
-                        self.long_paddle_animation_start_time = current_time
+        #     else:
+        #         # 技能結束 => 做縮回動畫
+        #         if self.long_paddle_animating or (self.player_paddle_width != self.long_paddle_original_width):
+        #             if self.long_paddle_animating:
+        #                 self.long_paddle_animating = False
+        #                 self.long_paddle_animation_start_time = current_time
 
-                    elapsed = current_time - self.long_paddle_animation_start_time
-                    if elapsed < animation_ms:
-                        ratio = elapsed / animation_ms
-                        self.player_paddle_width = int(
-                            self.long_paddle_target_width
-                            - (self.long_paddle_target_width - self.long_paddle_original_width) * ratio
-                        )
-                    else:
-                        self.player_paddle_width = self.long_paddle_original_width
+        #             elapsed = current_time - self.long_paddle_animation_start_time
+        #             if elapsed < animation_ms:
+        #                 ratio = elapsed / animation_ms
+        #                 self.player_paddle_width = int(
+        #                     self.long_paddle_target_width
+        #                     - (self.long_paddle_target_width - self.long_paddle_original_width) * ratio
+        #                 )
+        #             else:
+        #                 self.player_paddle_width = self.long_paddle_original_width
 
-                    # 若動畫結束，顏色恢復
-                    if elapsed >= animation_ms or (self.player_paddle_width == self.long_paddle_original_width):
-                        self.paddle_color = None
+        #             # 若動畫結束，顏色恢復
+        #             if elapsed >= animation_ms or (self.player_paddle_width == self.long_paddle_original_width):
+        #                 self.paddle_color = None
 
         return self._get_obs(), reward, False, False, {}
 
