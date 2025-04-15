@@ -1,4 +1,4 @@
-# main.py（已整理 + 註解）
+# main.py（改良後）
 
 import pygame
 import sys
@@ -25,8 +25,7 @@ def show_countdown(env):
     font = Style.get_font(60)
     screen = env.window
     for i in range(3, 0, -1):
-        # 播放倒數音效 ⭐️ 新增這一行 ⭐️
-        env.sound_manager.play_countdown()
+        env.sound_manager.play_countdown()  # 播放倒數音效
 
         screen.fill(Style.BACKGROUND_COLOR)
         countdown_surface = font.render(str(i), True, Style.TEXT_COLOR)
@@ -34,7 +33,6 @@ def show_countdown(env):
         screen.blit(countdown_surface, countdown_rect)
         pygame.display.flip()
         pygame.time.wait(1000)
-
 
 # 顯示遊戲結果橫幅（YOU WIN / LOSE）
 def show_result_banner(screen, text, color):
@@ -55,19 +53,21 @@ def main():
     # 先選擇控制方式
     if input_mode is None:
         input_mode = select_input_method()
-        if input_mode is not None:  # ⭐️ 如果使用者有成功選擇，才播放點擊音效
-            temp_env = PongDuelEnv(render_size=400)  # 臨時環境來播放音效
+        if input_mode is not None:
+            temp_env = PongDuelEnv(render_size=400)
             temp_env.sound_manager.play_click()
-            temp_env.close()  # 播放完點擊音效立即關閉環境，避免浪費資源
+            temp_env.close()
         if input_mode is None:
             return
         
-    # ⭐️ 選擇技能 (明確新增)
+    # 取得玩家選擇的技能
     selected_skill = select_skill()
     if selected_skill is None:
         input_mode = None
         return
-    GameSettings.ACTIVE_SKILL = selected_skill  # ⭐️ 將選擇的技能更新至設定
+
+    # === ❶ 不再寫入 GameSettings.ACTIVE_SKILL ===
+    # GameSettings.ACTIVE_SKILL = selected_skill  # 這行刪掉
 
     # 選擇關卡
     selected_index = show_level_selection()
@@ -75,10 +75,11 @@ def main():
         input_mode = None
         return
 
-    # 現在才初始化環境
-    env = PongDuelEnv(render_size=400)
+    # === ❷ 在此直接傳入環境的建構子 ===
+    env = PongDuelEnv(render_size=400, active_skill_name=selected_skill)
+    # ↑ 這樣 PongDuelEnv 就知道你選了什麼技能，而不必依賴 GameSettings
 
-    # 點擊音效在確定選項後播放
+    # 確定選項後播放點擊音效
     env.sound_manager.play_click()
 
     # 載入關卡設定與 AI 模型
@@ -97,13 +98,12 @@ def main():
     obs, _ = env.reset()
     env.render()
 
-    # ⭐ 背景音樂在這裡播放（明確位置）
-    # ⭐️ 改成依照當前關卡的bg_music播放：
+    # 背景音樂（使用關卡指定的 bg_music）
     pygame.mixer.music.load(f"assets/{env.bg_music}")
-    pygame.mixer.music.set_volume(GameSettings.BACKGROUND_MUSIC_VOLUME)  # 確保使用設定音量
+    pygame.mixer.music.set_volume(GameSettings.BACKGROUND_MUSIC_VOLUME)
     pygame.mixer.music.play(-1)
 
-    # 開始倒數
+    # 倒數計時
     show_countdown(env)
 
     done = False
@@ -126,6 +126,7 @@ def main():
             elif mouse_x > env.player_x + 0.01:
                 player_action = 2
 
+        # 讓 AI 做動作
         ai_obs = obs.copy()
         ai_obs[4], ai_obs[5] = ai_obs[5], ai_obs[4]
         ai_action = ai.select_action(ai_obs)
@@ -158,7 +159,6 @@ def main():
     env.close()
 
 
-# 遊戲主迴圈
 if __name__ == '__main__':
     while True:
         main()

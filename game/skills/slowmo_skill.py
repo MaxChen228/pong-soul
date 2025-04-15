@@ -1,12 +1,14 @@
 import pygame
 from game.skills.base_skill import Skill
-from game.settings import GameSettings  # ⭐️ 引用設定檔
+from game.skills.skill_config import SKILL_CONFIGS
 
 class SlowMoSkill(Skill):
     def __init__(self, env):
         super().__init__(env)
-        self.duration_ms = GameSettings.SLOWMO_DURATION_MS  # ⭐️ 透過設定取得
-        self.cooldown_ms = GameSettings.SLOWMO_COOLDOWN_MS  # ⭐️ 透過設定取得
+        cfg = SKILL_CONFIGS["slowmo"]
+        self.duration_ms = cfg["duration_ms"]
+        self.cooldown_ms = cfg["cooldown_ms"]
+        # 其他屬性還要不要儲存？ex: self.paddle_color = cfg["paddle_color"]
         self.active = False
         self.activated_time = 0
         self.cooldown_start_time = 0
