@@ -1,0 +1,12 @@
+initial_direction: "down"
+initial_angle_deg_range: [-60, 60]
+initial_speed: 0.02
+enable_spin: true
+magnus_factor: 0.01
+speed_increment: 0.002
+speed_scale_every: 3
+player_life: 3
+ai_life: 3
+player_paddle_width: 100
+ai_paddle_width: 60
+bg_music: "bg_music_level1.mp3"   # ⭐️ 新增這一行（level1專屬bgm）
