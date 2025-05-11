@@ -1,4 +1,4 @@
-# skill_config.py
+# pong-soul/game/skills/skill_config.py
 """
 用來集中管理各種技能的參數。
 不省略任何功能。
@@ -7,16 +7,14 @@ SKILL_CONFIGS = {
     "slowmo": {
         "duration_ms": 3000,
         "cooldown_ms": 5000,
-        # 顏色/特效
-        "paddle_color": (0, 150, 255),  # slowmo板子顏色
+        "paddle_color": (0, 150, 255),
         "fog_duration_ms": 2000,
         "trail_color": (0, 200, 255),
         "bar_color": (0, 200, 255),
-
-        # 時鐘參數（如果還需要）
         "clock_color": (255, 255, 255, 100),
         "clock_radius": 50,
         "clock_line_width": 4,
+        # SlowMo 音效由 SlowMoSkill 內部直接引用 sound_manager 的方法播放，不在此配置路徑
     },
     "long_paddle": {
         "duration_ms": 3000,
@@ -27,22 +25,24 @@ SKILL_CONFIGS = {
         "bar_color": (0, 100, 0),
     },
     "soul_eater_bug": {
-        "duration_ms": 5000,
-        "cooldown_ms": 10000,
-        # "bug_speed": 0.015, # We'll replace this with base_y_speed
+        "duration_ms": 6000,      # 蟲形態最大持續時間
+        "cooldown_ms": 12000,     # 技能冷卻時間
         "bar_color": (150, 50, 200),
-        "bug_image_path": "assets/soul_eater_bug.png",
-        "activation_sound_path": "assets/bug_activate.mp3",
-        "crawl_sound_path": "assets/bug_crawl.mp3",
-        "hit_sound_path": "assets/bug_hit_paddle.mp3",
-        "score_sound_path": "assets/bug_score.mp3",
+        "bug_image_path": "assets/soul_eater_bug.png", # 確認你有這個圖片
+        "bug_display_scale_factor": 2, # 蟲圖片相對於原始球大小的縮放因子 (1.0代表一樣大)
 
-        # --- New Movement Parameters ---
-        "base_y_speed": 0.025,         # Base speed towards opponent (units per frame, before time_scale)
-        "x_amplitude": 0.2,           # Max horizontal deviation for sine wave (0.0 to 0.5 of screen width)
-        "x_frequency": 0.7,           # How many sine wave cycles over a certain time/distance
-        "x_homing_factor": 0.03,      # How strongly it steers towards opponent paddle's X (0 to 1, responsiveness)
-        "initial_phase_offset_range": [0, 6.28318], # Random initial phase for sine wave [min_rad, max_rad (0 to 2*PI)]
-        "time_scaling_for_wave": 0.05 # Adjusts how quickly the sine wave evolves over time
+        # --- 新增音效路徑 (請確保 assets 資料夾有這些音效檔) ---
+        "sound_activate": "assets/bug_activate.mp3",    # 啟動音效
+        "sound_crawl": "assets/bug_crawl.mp3",          # (可選) 爬行時循環音效
+        "sound_hit_paddle": "assets/bug_hit_paddle.mp3",# 撞到對方球拍音效
+        "sound_score": "assets/bug_score.mp3",          # 成功得分音效 (可共用預設得分音效)
+
+        # --- Movement Parameters ---
+        "base_y_speed": 0.022,
+        "x_amplitude": 0.18,
+        "x_frequency": 0.75,
+        "x_homing_factor": 0.035,
+        "initial_phase_offset_range": [0, 6.28318],
+        "time_scaling_for_wave": 0.05,
     }
 }
