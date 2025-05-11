@@ -8,7 +8,7 @@ from game.theme import Style  # 新增 if not already
 from game.settings import GameSettings
 import pygame.mixer
 from utils import resource_path # 現在它可以找到咒語了！
-
+from game.sound import SoundManager # <--- 新增這一行
 
 def show_level_selection():
     pygame.init()
@@ -131,6 +131,7 @@ def select_input_method():
                     selected = (selected - 1) % len(options)
                 elif event.key == pygame.K_RETURN:
                     return options[selected].lower()
+
 def select_skill():
     pygame.init()
     screen = pygame.display.set_mode((500, 500))
@@ -144,6 +145,8 @@ def select_skill():
     skills = ["slowmo", "long_paddle"]
     selected = 0
     clock = pygame.time.Clock()
+
+    sound_manager = SoundManager()
 
     while True:
         screen.fill(Style.BACKGROUND_COLOR)
@@ -174,9 +177,13 @@ def select_skill():
             elif event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_DOWN:
                     selected = (selected + 1) % len(skills)
+                    sound_manager.play_click() # <--- 新增：播放點擊音效
                 elif event.key == pygame.K_UP:
                     selected = (selected - 1) % len(skills)
+                    sound_manager.play_click() # <--- 新增：播放點擊音效
                 elif event.key == pygame.K_RETURN:
+                    sound_manager.play_click() # <--- 新增：播放點擊音效
                     return skills[selected]
                 elif event.key == pygame.K_ESCAPE:
+                    sound_manager.play_click() # <--- 新增：播放點擊音效
                     return None  # 允許返回上一層
