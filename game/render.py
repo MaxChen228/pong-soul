@@ -62,10 +62,25 @@ class Renderer:
             self.window.blit(t_surf,(0,0))
 
         # 球旋轉
-        self.ball_angle+= self.env.spin*12
-        rotated_ball= pygame.transform.rotate(self.ball_image, self.ball_angle)
-        rect= rotated_ball.get_rect(center=(cx,cy))
-        self.window.blit(rotated_ball, rect)
+        # 球/蟲 繪製與旋轉邏輯
+        current_display_image = self.ball_image # self.ball_image 已經被技能動態更新了
+
+        if hasattr(self.env, 'bug_skill_active') and self.env.bug_skill_active:
+            # 如果是蟲技能啟動狀態：
+            # 蟲可能不需要旋轉，或者有固定的朝向 (例如，永遠頭朝上)
+            # 假設蟲圖片本身就是正確朝向，所以直接使用，不進行額外旋轉
+            rotated_ball_or_bug = current_display_image
+            # 如果你的蟲圖片需要旋轉到特定角度 (例如，圖片是水平的，但希望它垂直向上)：
+            # angle_for_bug = 0 # 0 度通常是圖片的原始方向，向上可能是 0, 90, -90 等，取決於你的圖片
+            # rotated_ball_or_bug = pygame.transform.rotate(current_display_image, angle_for_bug)
+        else:
+            # 正常球的旋轉邏輯
+            self.ball_angle += self.env.spin * 12 # 根據 spin 值計算旋轉角度 (12是旋轉速度因子)
+            rotated_ball_or_bug = pygame.transform.rotate(current_display_image, self.ball_angle)
+
+        # 獲取圖片的矩形區域並設定中心點，然後繪製
+        rect = rotated_ball_or_bug.get_rect(center=(cx, cy))
+        self.window.blit(rotated_ball_or_bug, rect)
 
         # === (A) 在畫板子 **之前**，先呼叫 skill.render() ===
         # 讓slowmo的殘影 / shockwave 畫在底層
