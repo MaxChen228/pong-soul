@@ -56,7 +56,6 @@ def main():
         input_mode = select_input_method()
         if input_mode is not None:
             temp_env = PongDuelEnv(render_size=400)
-            temp_env.sound_manager.play_click()
             temp_env.close()
         if input_mode is None:
             return
@@ -79,9 +78,6 @@ def main():
     # === ❷ 在此直接傳入環境的建構子 ===
     env = PongDuelEnv(render_size=400, active_skill_name=selected_skill)
     # ↑ 這樣 PongDuelEnv 就知道你選了什麼技能，而不必依賴 GameSettings
-
-    # 確定選項後播放點擊音效
-    env.sound_manager.play_click()
 
     # 載入關卡設定與 AI 模型
     levels = LevelManager(models_folder=resource_path("models"))
