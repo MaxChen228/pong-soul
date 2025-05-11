@@ -1,9 +1,17 @@
-# base_skill.py
+# pong-soul/game/skills/base_skill.py
 from abc import ABC, abstractmethod
 
 class Skill(ABC):
     def __init__(self, env):
         self.env = env
+
+    @property
+    def overrides_ball_physics(self):
+        """
+        指示此技能是否會完全覆寫環境中的預設球體物理邏輯。
+        預設為 False，表示技能不覆寫，環境應繼續處理球的移動。
+        """
+        return False
 
     @abstractmethod
     def activate(self):
