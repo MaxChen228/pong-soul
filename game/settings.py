@@ -5,6 +5,10 @@ class GameSettings:
     此類僅存放「全域遊戲設定」，不再包含任何技能參數。
     例如：音量、FPS、Theme選擇、freeze時間等。
     """
+     # === 遊戲模式定義 ===
+    class GameMode:
+        PLAYER_VS_AI = "PVA"
+        PLAYER_VS_PLAYER = "PVP"
 
     # === 音量設定 ===
     BACKGROUND_MUSIC_VOLUME = 0.2

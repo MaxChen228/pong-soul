@@ -8,7 +8,7 @@ from game.theme import Style
 from game.physics import collide_sphere_with_moving_plane
 from game.sound import SoundManager
 from game.render import Renderer
-from game.settings import GameSettings
+from game.settings import GameSettings # 引入 GameSettings
 from game.skills.skill_config import SKILL_CONFIGS
 
 from game.skills.slowmo_skill import SlowMoSkill
@@ -22,11 +22,15 @@ class PongDuelEnv:
                  paddle_width=60,
                  paddle_height=10,
                  ball_radius=10,
-                 active_skill_name=None):
+                 active_skill_name=None,
+                 game_mode=GameSettings.GameMode.PLAYER_VS_AI): # ⭐ 新增 game_mode 參數
+
+        self.game_mode = game_mode # ⭐ 儲存遊戲模式
+        print(f"PongDuelEnv initialized with game_mode: {self.game_mode}") # ⭐ 驗證用 print
 
         self.sound_manager = SoundManager()
         self.renderer = None
-
+        # ... (其他 __init__ 內容保持不變) ...
         self.trail = []
         self.max_trail_length = 20
 
@@ -40,8 +44,8 @@ class PongDuelEnv:
         self.paddle_height = paddle_height
         self.ball_radius = ball_radius
 
-        self.player_x = 0.5
-        self.ai_x = 0.5
+        self.player_x = 0.5 # 未來可能改為 player1_x
+        self.ai_x = 0.5     # 未來可能改為 player2_x
         self.prev_player_x = self.player_x
         self.prev_ai_x = self.ai_x
 
@@ -63,10 +67,10 @@ class PongDuelEnv:
         self.initial_angle_range = None
         self.initial_speed = 0.02
 
-        self.player_life = 3
-        self.ai_life = 3
-        self.player_max_life = 3 # 將在 set_params_from_config 中更新
-        self.ai_max_life = 3     # 將在 set_params_from_config 中更新
+        self.player_life = 3 # 未來可能改為 player1_life
+        self.ai_life = 3     # 未來可能改為 player2_life
+        self.player_max_life = 3
+        self.ai_max_life = 3
 
 
         self.window = None
@@ -79,13 +83,13 @@ class PongDuelEnv:
 
         self.skills = {}
         self.active_skill_name = active_skill_name
-        self.bug_skill_active = False # 由 SoulEaterBugSkill 控制
+        self.bug_skill_active = False
         self.paddle_color = None
 
         self.freeze_duration = GameSettings.FREEZE_DURATION_MS
         self.countdown_seconds = GameSettings.COUNTDOWN_SECONDS
         
-        self.round_concluded_by_skill = False # 新增旗標
+        self.round_concluded_by_skill = False
 
 
     def set_params_from_config(self, config):

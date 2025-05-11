@@ -1,5 +1,4 @@
-# main.py（修正版）
-
+# main.py
 import pygame
 import sys
 import time
@@ -7,18 +6,17 @@ import os
 import torch
 import numpy as np
 
-# 初始化 pygame 系統
 pygame.init()
 pygame.font.init()
 
-# 載入模組
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from envs.pong_duel_env import PongDuelEnv
 from game.ai_agent import AIAgent
 from game.level import LevelManager
 from game.theme import Style
-from game.menu import show_level_selection, select_input_method, select_skill
-from game.settings import GameSettings
+# ⭐ 引入 select_game_mode
+from game.menu import show_level_selection, select_input_method, select_skill, select_game_mode
+from game.settings import GameSettings # ⭐ 引入 GameSettings
 from utils import resource_path
 
 # 倒數動畫（開始前 3,2,1）
@@ -52,43 +50,79 @@ def show_result_banner(screen, text, color):
 # 全域控制輸入方式（Keyboard / Mouse）
 # input_mode = None # 改為在 main_loop 中管理
 
-def game_session(initial_input_mode, initial_skill):
+def game_session(initial_input_mode, initial_skill, current_game_mode): # ⭐ 新增 current_game_mode 參數
     """管理一整局遊戲的邏輯，從選擇關卡到遊戲結束"""
     input_mode = initial_input_mode
     selected_skill = initial_skill
 
-    # 選擇關卡
-    selected_index = show_level_selection()
-    if selected_index is None: # 如果在關卡選擇時按 ESC
-        return "select_skill" # 返回到技能選擇標記
-
-    env = PongDuelEnv(render_size=400, active_skill_name=selected_skill)
-    
+    # 關卡選擇邏輯調整：PVP模式可能跳過或有不同處理
+    selected_index = 0 # 預設值
+    config = {}
+    relative_model_path = None # AI模型路徑
     levels = LevelManager(models_folder=resource_path("models"))
-    levels.current_level = selected_index
-    relative_model_path = levels.get_current_model_path()
-    config = levels.get_current_config()
 
-    if relative_model_path is None:
-        print("❌ No model found.")
-        env.close()
-        return "select_skill" # 或者 "quit"
+    if current_game_mode == GameSettings.GameMode.PLAYER_VS_AI:
+        selected_index_result = show_level_selection()
+        if selected_index_result is None:
+            return "select_skill"
+        selected_index = selected_index_result
+        levels.current_level = selected_index
+        relative_model_path = levels.get_current_model_path() # 只有PVA需要模型
+        config = levels.get_current_config()
+        if relative_model_path is None:
+            print("❌ No model found for PVA mode.")
+            # env is not created yet, so no env.close()
+            return "select_skill"
+    elif current_game_mode == GameSettings.GameMode.PLAYER_VS_PLAYER:
+        print("PVP mode selected. Using default configuration or a specific PVP config if available.")
+        # ⭐ PVP模式的配置：
+        # 方案A: 使用第一個關卡的設定 (不含AI模型)
+        levels.current_level = 0 # 或者一個指定的PVP關卡索引
+        config = levels.get_current_config() # 獲取球速、場地等設定
+        # 方案B: 或者載入一個PVP專用的config.yaml
+        # config = load_pvp_config() # 假設有此函數
+        if not config: # 如果沒有PVP設定，可以使用一個通用預設
+            print("Warning: No specific PVP config found, using fallback.")
+            config = { # 一些基本預設值
+                'initial_speed': 0.025, 'enable_spin': True, 'magnus_factor': 0.01,
+                'speed_increment': 0.002, 'speed_scale_every': 3,
+                'player_life': 3, 'ai_life': 3, # 在PVP中 ai_life 會是 player2_life
+                'player_paddle_width': 100, 'ai_paddle_width': 100, # PVP雙方球拍寬度
+                'bg_music': "bg_music_level1.mp3" # 預設背景音樂
+            }
+            # 手動設定PVP的玩家生命 (此處ai_life會被視為P2的生命)
+            config['player_max_life'] = config['player_life']
+            config['ai_max_life'] = config['ai_life']
 
-    env.set_params_from_config(config)
 
-    absolute_model_path = resource_path(relative_model_path)
-    if not os.path.exists(absolute_model_path):
-         print(f"❌ Model file not found at: {absolute_model_path}")
-         try: print(f"Searching in base path: {sys._MEIPASS}")
-         except AttributeError: pass
-         env.close()
-         return "select_skill" # 或者 "quit"
-    ai = AIAgent(absolute_model_path)
+    # ⭐ 傳遞 game_mode 給 PongDuelEnv
+    env = PongDuelEnv(render_size=400, active_skill_name=selected_skill, game_mode=current_game_mode)
+    env.set_params_from_config(config) # 使用獲取的config設定環境
+
+    # ⭐ AI Agent 的條件式載入
+    ai = None
+    if current_game_mode == GameSettings.GameMode.PLAYER_VS_AI:
+        if relative_model_path: # 確保PVA模式有模型路徑
+            absolute_model_path = resource_path(relative_model_path)
+            if not os.path.exists(absolute_model_path):
+                print(f"❌ Model file not found at: {absolute_model_path}")
+                env.close()
+                return "select_skill"
+            ai = AIAgent(absolute_model_path)
+            print(f"AI Agent loaded for PVA mode: {relative_model_path}")
+        else:
+            print("❌ Error: PVA mode selected but no model path available.")
+            env.close()
+            return "select_skill" # 或者 "quit"
+    else: # PVP mode
+        print("PVP mode: AI Agent will not be loaded.")
+
 
     obs, _ = env.reset()
-    env.render()
+    env.render() # 確保在倒數前至少渲染一次以建立env.window
 
     if hasattr(env, 'sound_manager') and env.sound_manager and hasattr(env, 'bg_music'):
+        # ... (背景音樂播放邏輯不變) ...
         bg_music_relative_path = f"assets/{env.bg_music}"
         try:
             pygame.mixer.music.load(resource_path(bg_music_relative_path))
@@ -96,10 +130,7 @@ def game_session(initial_input_mode, initial_skill):
             env.sound_manager.play_bg_music()
         except pygame.error as e:
             print(f"Error loading or playing background music {bg_music_relative_path}: {e}")
-    else:
-        print("Warning: SoundManager or bg_music not available in env for background music.")
 
-    # ⭐ 第二個問題修正：開場倒數只在遊戲會話開始時執行一次 ⭐
     show_countdown(env)
 
     done = False
@@ -112,7 +143,8 @@ def game_session(initial_input_mode, initial_skill):
         else:
             time.sleep(0.016)
 
-        player_action = 1
+        player_action = 1 # 玩家一的行動
+        # ... (玩家一輸入捕捉邏輯不變) ...
         if input_mode == "keyboard":
             keys = pygame.key.get_pressed()
             if keys[pygame.K_LEFT]:
@@ -128,22 +160,33 @@ def game_session(initial_input_mode, initial_skill):
             elif mouse_x_relative > env.player_x + threshold:
                 player_action = 2
         
-        ai_obs = obs.copy()
-        if len(ai_obs) >= 6:
-             ai_obs[4], ai_obs[5] = ai_obs[5], ai_obs[4]
-        ai_action = ai.select_action(ai_obs)
+        # ⭐ 動作決策：AI 或 玩家二
+        action_for_top_paddle = 1 # 預設不動
+        if current_game_mode == GameSettings.GameMode.PLAYER_VS_AI:
+            if ai: # 確保ai物件存在
+                ai_obs = obs.copy()
+                if len(ai_obs) >= 6:
+                    ai_obs[4], ai_obs[5] = ai_obs[5], ai_obs[4] # AI觀察的是對手在前的狀態
+                action_for_top_paddle = ai.select_action(ai_obs)
+            else: # AI不存在，這不應該發生在PVA模式，但作為保護
+                print("Error: AI is None in PVA mode during step.")
+                action_for_top_paddle = 1 # AI故障，不動
+        else: # PVP 模式 (下一階段實現玩家二輸入)
+            # 目前PVP模式下，上方球拍暫時不動或由簡單邏輯控制
+            # print("PVP mode: Top paddle action pending P2 input implementation.")
+            action_for_top_paddle = 1 # 暫時讓上方球拍不動
 
-        obs, reward, done, _, _ = env.step(player_action, ai_action)
+        obs, reward, done, _, _ = env.step(player_action, action_for_top_paddle)
 
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 game_running = False
-                env.close() # 確保關閉環境
-                pygame.quit() # 退出pygame
-                sys.exit() # 終止程式
+                env.close()
+                pygame.quit()
+                sys.exit()
 
-        if done: # 僅表示回合結束 (有玩家失分)
-            player_life, ai_life = env.get_lives()
+        if done:
+            player_life, ai_or_p2_life = env.get_lives() # ai_life 此時可能是 p2_life
             
             freeze_start = pygame.time.get_ticks()
             while pygame.time.get_ticks() - freeze_start < env.freeze_duration:
@@ -151,65 +194,68 @@ def game_session(initial_input_mode, initial_skill):
                 pygame.event.pump()
                 pygame.time.delay(16)
 
-            if player_life <= 0: # 遊戲真正結束
+            game_over_message_p1_wins = "PLAYER 1 WINS!" if current_game_mode == GameSettings.GameMode.PLAYER_VS_PLAYER else "YOU WIN!"
+            game_over_message_p1_loses = "PLAYER 2 WINS!" if current_game_mode == GameSettings.GameMode.PLAYER_VS_PLAYER else "YOU LOSE!"
+            
+            if player_life <= 0:
                 if hasattr(env, 'sound_manager') and env.sound_manager:
                     env.sound_manager.play_lose_sound()
-                show_result_banner(env.window, "YOU LOSE", Style.AI_COLOR)
-                game_running = False # 標記遊戲會話結束
-            elif ai_life <= 0: # 遊戲真正結束
+                show_result_banner(env.window, game_over_message_p1_loses, Style.AI_COLOR) # PVP時AI_COLOR可能代表P2
+                game_running = False
+            elif ai_or_p2_life <= 0:
                 if hasattr(env, 'sound_manager') and env.sound_manager:
                     env.sound_manager.play_win_sound()
-                show_result_banner(env.window, "YOU WIN", Style.PLAYER_COLOR)
-                game_running = False # 標記遊戲會話結束
+                show_result_banner(env.window, game_over_message_p1_wins, Style.PLAYER_COLOR)
+                game_running = False
             
-            if not game_running: # 如果因為勝負已分而需要結束
-                env.close() # 關閉當前遊戲環境
-                return "select_skill" # ⭐ 第一個問題修正：返回到技能選擇菜單的信號 ⭐
+            if not game_running:
+                env.close()
+                # 返回到遊戲模式選擇，或技能選擇，取決於流程設計
+                return "select_game_mode" # 或者 "select_skill"
 
-            # 如果遊戲未因勝負結束，僅是回合重置
             pygame.time.delay(500)
-            obs, _ = env.reset() # 重置球等回合狀態
-            # ⭐ 第二個問題修正：移除這裡的 show_countdown ⭐
-            done = False # 為下一回合準備
+            obs, _ = env.reset()
+            done = False
 
-    # 如果 game_running 因為其他原因（例如非正常退出）變為 False
     env.close()
-    return "select_skill" # 預設返回到技能選擇
+    return "select_game_mode" # 預設返回到遊戲模式選擇
+
 
 def main_loop():
     """管理主要的應用程式流程，包括選單和遊戲會話之間的轉換"""
     current_input_mode = None
     current_skill = None
+    current_game_mode = None # ⭐ 新增遊戲模式狀態
     
+    next_step = "select_game_mode" # ⭐ 應用程式啟動時的第一步
+
     while True:
-        if current_input_mode is None:
+        if next_step == "select_game_mode":
+            current_game_mode = select_game_mode()
+            if current_game_mode is None: # 通常意味著退出
+                break
+            next_step = "select_input" # 選擇完模式後去選擇輸入方式
+
+        elif next_step == "select_input":
             current_input_mode = select_input_method()
-            if current_input_mode is None: # 用戶在選擇控制器時退出 (例如按視窗關閉)
-                break # 結束主迴圈
+            if current_input_mode is None:
+                next_step = "select_game_mode" # 返回上一層選單
+                continue
+            next_step = "select_skill"
 
-        if current_skill is None or next_step == "select_skill": # 初始或從遊戲返回到技能選擇
-            current_skill = select_skill()
-            if current_skill is None: # 用戶在技能選擇時按 ESC
-                current_input_mode = None # 重置，回到控制器選擇
-                current_skill = None # 也重置技能
-                next_step = "select_input" # 標記下次從頭開始
-                continue # 回到 while True 開頭
-        
-        # 進入遊戲會話
-        next_step = game_session(current_input_mode, current_skill)
-
-        if next_step == "quit": # 如果 game_session 返回退出信號
-            break
         elif next_step == "select_skill":
-            # current_skill 會在下一次迴圈開始時重新選擇
-            # input_mode 保持不變，直接進入技能選擇
-            current_skill = None # 清空當前技能，以便下次重新選擇
-            continue
-        elif next_step == "select_input": #極端情況，例如從關卡選擇直接返回
-            current_input_mode = None
-            current_skill = None
-            continue
+            current_skill = select_skill()
+            if current_skill is None:
+                next_step = "select_input" # 返回上一層選單
+                continue
+            # 選擇完技能後，進入遊戲會話
+            next_step = game_session(current_input_mode, current_skill, current_game_mode) # ⭐ 傳遞模式
 
+        elif next_step == "quit":
+            break
+        
+        # 如果 game_session 返回 "select_game_mode", "select_input", "select_skill"
+        # 會在下一次迴圈開始時直接跳轉到對應的 if 分支
 
 if __name__ == '__main__':
     main_loop()

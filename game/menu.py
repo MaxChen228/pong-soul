@@ -203,3 +203,58 @@ def select_skill():
                 elif event.key == pygame.K_ESCAPE:
                     sound_manager.play_click() # <--- 加入音效
                     return None  # 允許返回上一層 (通常是輸入方式選擇)
+def select_game_mode(): # ⭐ 新增此函數
+    pygame.init() # 確保pygame已初始化
+    screen = pygame.display.set_mode((500, 500))
+    pygame.display.set_caption("Select Game Mode")
+
+    font_title = Style.get_font(Style.TITLE_FONT_SIZE)
+    font_subtitle = Style.get_font(Style.SUBTITLE_FONT_SIZE)
+    font_item = Style.get_font(Style.ITEM_FONT_SIZE)
+
+    options = [
+        ("Player vs. AI", GameSettings.GameMode.PLAYER_VS_AI),
+        ("Player vs. Player", GameSettings.GameMode.PLAYER_VS_PLAYER)
+    ]
+    display_options = [opt[0] for opt in options]
+    selected = 0
+    clock = pygame.time.Clock()
+    sound_manager = SoundManager()
+
+    # 假設背景音樂已由 main.py 或更早的流程啟動和管理
+    # 如果這是遊戲第一個選單，可以在此處啟動背景音樂。
+
+    while True:
+        screen.fill(Style.BACKGROUND_COLOR)
+
+        title_surf = font_title.render("Select Game Mode", True, Style.TEXT_COLOR)
+        screen.blit(title_surf, Style.TITLE_POS)
+
+        subtitle_surf = font_subtitle.render("(UP/DOWN, ENTER to confirm)", True, Style.TEXT_COLOR)
+        screen.blit(subtitle_surf, Style.SUBTITLE_POS)
+
+        for i, option_text in enumerate(display_options):
+            color = Style.PLAYER_COLOR if i == selected else Style.TEXT_COLOR
+            text_surf = font_item.render(option_text, True, color)
+            x, y = Style.ITEM_START_POS
+            screen.blit(text_surf, (x, y + i * Style.ITEM_LINE_SPACING))
+
+        pygame.display.flip()
+        clock.tick(30)
+
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                pygame.quit()
+                sys.exit()
+            elif event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_DOWN:
+                    selected = (selected + 1) % len(options)
+                    sound_manager.play_click()
+                elif event.key == pygame.K_UP:
+                    selected = (selected - 1 + len(options)) % len(options)
+                    sound_manager.play_click()
+                elif event.key == pygame.K_RETURN:
+                    sound_manager.play_click()
+                    return options[selected][1] # 返回選擇的模式值 (e.g., "PVA" or "PVP")
+                # 此選單暫不提供 ESC 返回，因為它通常是流程的早期步驟
+                # 如果需要返回，可以像 select_skill 那樣返回 None
