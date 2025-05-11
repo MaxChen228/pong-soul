@@ -5,8 +5,8 @@ enable_spin: true
 magnus_factor: 0.04
 speed_increment: 0.003
 speed_scale_every: 2
-player_life: 3
-ai_life: 30
+player_life: 1
+ai_life: 1
 player_paddle_width: 100
 ai_paddle_width: 60
 bg_music: "bg_music_level2.mp3"   # ⭐️ 新增這一行（level2專屬bgm）

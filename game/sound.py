@@ -1,3 +1,4 @@
+# game/sound.py
 import pygame
 pygame.mixer.init()
 from game.settings import GameSettings  # ⭐️ 引用設定
@@ -7,9 +8,18 @@ class SoundManager:
     def __init__(self):
         pygame.mixer.init()
         self.slowmo_sound = pygame.mixer.Sound(resource_path("assets/slowmo.mp3"))
-        self.click_sound = pygame.mixer.Sound(resource_path("assets/click.mp3"))
+        self.click_sound = pygame.mixer.Sound(resource_path("assets/click.mp3")) # 保留給UI等其他點擊音效
         self.countdown_sound = pygame.mixer.Sound(resource_path("assets/countdown.mp3"))
         
+        # ⭐ 新增載入球拍碰撞音效 ⭐
+        try:
+            self.paddle_hit_sound = pygame.mixer.Sound(resource_path("assets/paddle_hit.mp3"))
+            # 您可以為此音效設定獨立的音量，或使用現有的設定
+            self.paddle_hit_sound.set_volume(GameSettings.CLICK_SOUND_VOLUME) # 暫時使用CLICK_SOUND_VOLUME，可後續調整
+        except pygame.error as e:
+            print(f"Warning: Could not load paddle_hit sound: {e}")
+            self.paddle_hit_sound = None
+
         # ⭐ 新增載入勝利和失敗音效 ⭐
         try:
             self.win_sound = pygame.mixer.Sound(resource_path("assets/win.mp3"))
@@ -43,9 +53,17 @@ class SoundManager:
             self.slowmo_channel.stop()
             self.slowmo_channel = None
     
-    # 播放點擊音效
+    # 播放點擊音效 (用於UI等)
     def play_click(self):
         self.click_sound.play()
+
+    # ⭐ 新增播放球拍碰撞音效的方法 ⭐
+    def play_paddle_hit(self):
+        if self.paddle_hit_sound:
+            self.paddle_hit_sound.play()
+        else:
+            # 如果 paddle_hit.mp3 載入失敗，可以選擇播放預設的 click 音效或不播放
+            self.click_sound.play() # Fallback to click sound if paddle_hit_sound is not available
 
     # 播放倒數音效
     def play_countdown(self):

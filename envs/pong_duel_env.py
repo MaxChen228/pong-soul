@@ -1,4 +1,4 @@
-# pong-soul/envs/pong_duel_env.py
+# envs/pong_duel_env.py
 import numpy as np
 import pygame
 import random
@@ -308,7 +308,7 @@ class PongDuelEnv:
                     self.spin = omega_post
                     self.bounces += 1
                     self._scale_difficulty()
-                    self.sound_manager.play_click()
+                    self.sound_manager.play_paddle_hit() # <--- 修改於此
                 else: # AI漏接
                     self.ai_life -= 1
                     self.last_ai_hit_time = cur
@@ -334,7 +334,7 @@ class PongDuelEnv:
                     self.spin = omega_post
                     self.bounces += 1
                     self._scale_difficulty()
-                    self.sound_manager.play_click()
+                    self.sound_manager.play_paddle_hit() # <--- 修改於此
                 else: # 玩家漏接
                     self.player_life -= 1
                     self.last_player_hit_time = cur
