@@ -221,45 +221,55 @@ class PongDuelEnv:
             self.ball_vx = target_speed_magnitude * math.sin(angle_rad)
             self.ball_vy = target_speed_magnitude * math.cos(angle_rad)
 # envs/pong_duel_env.py
-# ... (大部分內容保持不變) ...
+# ... (大部分內容保持不變，特別是 __init__, _create_skill, activate_skill, reset 等)
 
     def step(self, player1_action_input, opponent_action_input):
         current_time_ticks = pygame.time.get_ticks()
+        info = {} # ⭐️ 初始化 info 字典
 
+        # ... (freeze_timer 邏輯保持不變) ...
         if self.freeze_timer > 0:
             if current_time_ticks - self.freeze_timer < self.freeze_duration:
-                return self._get_obs(), 0, False, False, {}
+                return self._get_obs(), 0, False, False, info # 返回空的 info
             else:
                 self.freeze_timer = 0
 
+
         self.player1.prev_x = self.player1.x
         self.opponent.prev_x = self.opponent.x
-        old_ball_y_for_collision = self.ball_y
+        old_ball_y_for_collision = self.ball_y # 仍然可能有用，如果技能不覆蓋物理
 
+        # ⭐️ 重置回合結束標誌和回合信息
+        self.round_concluded_by_skill = False
+        self.current_round_info = {} # 用於儲存技能回傳的得分等信息
+
+        # 更新技能狀態 (P1)
         if self.player1.skill_instance and self.player1.skill_instance.is_active():
             self.player1.skill_instance.update()
         
+        # 更新技能狀態 (Opponent)
         if self.opponent.skill_instance and self.opponent.skill_instance.is_active():
             self.opponent.skill_instance.update()
-            
+        
+        # ⭐️ 如果技能導致回合結束，則 info 使用技能提供的信息，並提早返回
+        if self.round_concluded_by_skill:
+            if DEBUG_ENV: print(f"[SKILL_DEBUG][PongDuelEnv.step] Round concluded by skill. Info: {self.current_round_info}")
+            # scorer = self.current_round_info.get('scorer') # main.py 會處理 info
+            # 遊戲是否結束的判斷也應基於更新後的 lives
+            game_over = self.player1.lives <= 0 or self.opponent.lives <= 0
+            return self._get_obs(), 0, True, game_over, self.current_round_info # True 表示回合結束
+
+        # 全局時間尺度設定 (與之前相同)
         self.time_scale = 1.0 
         if self.player1.skill_instance and isinstance(self.player1.skill_instance, SlowMoSkill) and self.player1.skill_instance.is_active():
-             # ⭐️ 修正屬性名稱
              self.time_scale = self.player1.skill_instance.slow_time_scale_value
-             if DEBUG_ENV: print(f"[SKILL_DEBUG][PongDuelEnv.step] P1 SlowMo active. Time scale set to: {self.time_scale}")
-
         if self.opponent.skill_instance and isinstance(self.opponent.skill_instance, SlowMoSkill) and self.opponent.skill_instance.is_active():
-             # ⭐️ 修正屬性名稱
              opponent_slowmo_scale = self.opponent.skill_instance.slow_time_scale_value
-             if opponent_slowmo_scale < self.time_scale:
-                 self.time_scale = opponent_slowmo_scale
-             if DEBUG_ENV: print(f"[SKILL_DEBUG][PongDuelEnv.step] Opponent SlowMo active. Combined time scale set to: {self.time_scale}")
+             if opponent_slowmo_scale < self.time_scale : self.time_scale = opponent_slowmo_scale
 
-
-        player_move_speed = 0.03
-        ts = self.time_scale # ⭐️ ts 現在會受到技能影響
-        # ... (移動邏輯, 球物理更新, 碰撞及計分邏輯等保持不變) ...
-        # ... (確保這些邏輯都使用 ts 作為時間因子) ...
+        # 移動處理 (與之前相同)
+        player_move_speed = 0.03; ts = self.time_scale
+        # ... (P1 and Opponent movement logic) ...
         if player1_action_input == 0: self.player1.x -= player_move_speed * ts
         elif player1_action_input == 2: self.player1.x += player_move_speed * ts
         if opponent_action_input == 0: self.opponent.x -= player_move_speed * ts
@@ -273,75 +283,48 @@ class PongDuelEnv:
         elif self.opponent.skill_instance and self.opponent.skill_instance.is_active() and self.opponent.skill_instance.overrides_ball_physics:
             run_normal_ball_physics = False
         
-        info = {} 
-        reward = 0
-        done = False
-        game_over = False
+        reward = 0; done = False; game_over = False # 重置這些局部變數
 
         if run_normal_ball_physics:
-            if self.enable_spin:
-                spin_force_x = self.magnus_factor * self.spin * self.ball_vy if self.ball_vy !=0 else 0
-                self.ball_vx += spin_force_x * ts 
-            self.ball_x += self.ball_vx * ts 
-            self.ball_y += self.ball_vy * ts
-
-            self.trail.append((self.ball_x, self.ball_y)) 
+            # ... (正常的球物理、碰撞、得分邏輯，與上一版本 step 方法中的這部分相同)
+            # ... 確保在得分時也設定 info['scorer'] ...
+            if self.enable_spin: spin_force_x = self.magnus_factor * self.spin * self.ball_vy if self.ball_vy !=0 else 0; self.ball_vx += spin_force_x * ts 
+            self.ball_x += self.ball_vx * ts; self.ball_y += self.ball_vy * ts
+            self.trail.append((self.ball_x, self.ball_y)); 
             if len(self.trail) > self.max_trail_length: self.trail.pop(0)
-
-            if self.ball_x - self.ball_radius_normalized <= 0: 
-                self.ball_x = self.ball_radius_normalized
-                self.ball_vx *= -1
-            elif self.ball_x + self.ball_radius_normalized >= 1:
-                self.ball_x = 1 - self.ball_radius_normalized
-                self.ball_vx *= -1
-            
-            collided_with_paddle_this_step = False 
-
-            opponent_paddle_surface_y = self.paddle_height_normalized
-            opponent_paddle_contact_y = opponent_paddle_surface_y + self.ball_radius_normalized
+            if self.ball_x - self.ball_radius_normalized <= 0: self.ball_x = self.ball_radius_normalized; self.ball_vx *= -1
+            elif self.ball_x + self.ball_radius_normalized >= 1: self.ball_x = 1 - self.ball_radius_normalized; self.ball_vx *= -1
+            collided_with_paddle_this_step = False
+            opponent_paddle_surface_y = self.paddle_height_normalized; opponent_paddle_contact_y = opponent_paddle_surface_y + self.ball_radius_normalized
             opponent_paddle_half_w = self.opponent.paddle_width_normalized / 2
             if old_ball_y_for_collision > opponent_paddle_contact_y and self.ball_y <= opponent_paddle_contact_y:
                 if abs(self.ball_x - self.opponent.x) < opponent_paddle_half_w + self.ball_radius_normalized * 0.5:
-                    self.ball_y = opponent_paddle_contact_y; vn = self.ball_vy; vt = self.ball_vx
-                    u_paddle = (self.opponent.x - self.opponent.prev_x) / ts if ts != 0 else 0
+                    self.ball_y = opponent_paddle_contact_y; vn = self.ball_vy; vt = self.ball_vx; u_paddle = (self.opponent.x - self.opponent.prev_x) / ts if ts != 0 else 0
                     vn_post, vt_post, omega_post = collide_sphere_with_moving_plane(vn, vt, u_paddle, self.spin, self.e_ball_paddle, self.mu_ball_paddle, self.mass, self.ball_radius_normalized)
-                    self.ball_vy = vn_post; self.ball_vx = vt_post; self.spin = omega_post
-                    self.bounces += 1; self._scale_difficulty(); self.sound_manager.play_paddle_hit()
+                    self.ball_vy = vn_post; self.ball_vx = vt_post; self.spin = omega_post; self.bounces += 1; self._scale_difficulty(); self.sound_manager.play_paddle_hit()
                     collided_with_paddle_this_step = True
-                else: 
-                    self.opponent.lives -= 1; self.player1.last_hit_time = current_time_ticks
-                    self.freeze_timer = current_time_ticks; done = True; info['scorer'] = 'player1'
+                else: self.opponent.lives -= 1; self.player1.last_hit_time = current_time_ticks; self.freeze_timer = current_time_ticks; done = True; info['scorer'] = 'player1'
             elif self.ball_y < 0: 
-                 if not collided_with_paddle_this_step:
-                    self.opponent.lives -= 1; self.player1.last_hit_time = current_time_ticks
-                    self.freeze_timer = current_time_ticks; done = True; info['scorer'] = 'player1'
-            
+                 if not collided_with_paddle_this_step: self.opponent.lives -= 1; self.player1.last_hit_time = current_time_ticks; self.freeze_timer = current_time_ticks; done = True; info['scorer'] = 'player1'
             if not done:
-                player1_paddle_surface_y = 1.0 - self.paddle_height_normalized
-                player1_paddle_contact_y = player1_paddle_surface_y - self.ball_radius_normalized
+                player1_paddle_surface_y = 1.0 - self.paddle_height_normalized; player1_paddle_contact_y = player1_paddle_surface_y - self.ball_radius_normalized
                 player1_paddle_half_w = self.player1.paddle_width_normalized / 2
                 if old_ball_y_for_collision < player1_paddle_contact_y and self.ball_y >= player1_paddle_contact_y:
                     if abs(self.ball_x - self.player1.x) < player1_paddle_half_w + self.ball_radius_normalized * 0.5:
-                        self.ball_y = player1_paddle_contact_y; vn = -self.ball_vy; vt = self.ball_vx
-                        u_paddle = (self.player1.x - self.player1.prev_x) / ts if ts != 0 else 0
+                        self.ball_y = player1_paddle_contact_y; vn = -self.ball_vy; vt = self.ball_vx; u_paddle = (self.player1.x - self.player1.prev_x) / ts if ts != 0 else 0
                         vn_post, vt_post, omega_post = collide_sphere_with_moving_plane(vn, vt, u_paddle, self.spin, self.e_ball_paddle, self.mu_ball_paddle, self.mass, self.ball_radius_normalized)
-                        self.ball_vy = -vn_post; self.ball_vx = vt_post; self.spin = omega_post
-                        self.bounces += 1; self._scale_difficulty(); self.sound_manager.play_paddle_hit()
+                        self.ball_vy = -vn_post; self.ball_vx = vt_post; self.spin = omega_post; self.bounces += 1; self._scale_difficulty(); self.sound_manager.play_paddle_hit()
                         collided_with_paddle_this_step = True
-                    else: 
-                        self.player1.lives -= 1; self.opponent.last_hit_time = current_time_ticks
-                        self.freeze_timer = current_time_ticks; done = True; info['scorer'] = 'opponent'
+                    else: self.player1.lives -= 1; self.opponent.last_hit_time = current_time_ticks; self.freeze_timer = current_time_ticks; done = True; info['scorer'] = 'opponent'
                 elif self.ball_y > 1.0: 
-                    if not collided_with_paddle_this_step:
-                        self.player1.lives -= 1; self.opponent.last_hit_time = current_time_ticks
-                        self.freeze_timer = current_time_ticks; done = True; info['scorer'] = 'opponent'
+                    if not collided_with_paddle_this_step: self.player1.lives -= 1; self.opponent.last_hit_time = current_time_ticks; self.freeze_timer = current_time_ticks; done = True; info['scorer'] = 'opponent'
         
-        if done and DEBUG_ENV:
-            print(f"[SKILL_DEBUG][PongDuelEnv.step] Round ended. Scorer: {info.get('scorer')}. P1 Lives: {self.player1.lives}, Opponent Lives: {self.opponent.lives}")
+        if done and DEBUG_ENV: # 這個 done 是指正常物理下的回合結束
+            print(f"[SKILL_DEBUG][PongDuelEnv.step] Round ended by NORMAL physics. Scorer: {info.get('scorer')}. P1 Lives: {self.player1.lives}, Opponent Lives: {self.opponent.lives}")
 
         game_over = self.player1.lives <= 0 or self.opponent.lives <= 0
-        if game_over and done and DEBUG_ENV: 
-            print(f"[SKILL_DEBUG][PongDuelEnv.step] GAME OVER detected.")
+        if game_over and done and DEBUG_ENV:
+            print(f"[SKILL_DEBUG][PongDuelEnv.step] GAME OVER by NORMAL physics detected.")
         
         return self._get_obs(), reward, done, game_over, info
 
