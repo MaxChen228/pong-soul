@@ -31,26 +31,35 @@ DEBUG_MAIN = True # ⭐️ 除錯開關
 
 # --- 倒數與結果顯示函數 (保持不變) ---
 def show_countdown(env):
-    font = Style.get_font(60)
-    if not env.renderer or not env.renderer.window: # 檢查 renderer 和 window 是否存在
-        if DEBUG_MAIN: print("[show_countdown] Warning: env.renderer.window not initialized. Forcing render.")
-        env.render()
-        if not env.renderer or not env.renderer.window:
-            if DEBUG_MAIN: print("[show_countdown] Error: env.renderer.window could not be initialized.")
-            return
+    if not env.renderer or not env.renderer.window:
+        if DEBUG_MAIN: print("[show_countdown] Error: Renderer or window not initialized.")
+        return
 
-    screen = env.renderer.window
-    for i in range(GameSettings.COUNTDOWN_SECONDS, 0, -1):
+    screen = env.renderer.window # ⭐️ 使用 Renderer 的主視窗 surface
+    font = Style.get_font(60) # 或者一個更大的字體，例如 Style.get_font(80)
+    
+    # 倒數秒數從 GameSettings 或 env 的 common_config 獲取
+    countdown_seconds_to_show = GameSettings.COUNTDOWN_SECONDS
+    if hasattr(env, 'common_config') and 'countdown_seconds' in env.common_config: # PongDuelEnv 應保存 common_config
+        countdown_seconds_to_show = env.common_config['countdown_seconds']
+    elif hasattr(env, 'countdown_seconds'): # 如果 env 直接有此屬性
+        countdown_seconds_to_show = env.countdown_seconds
+
+
+    for i in range(countdown_seconds_to_show, 0, -1):
         if hasattr(env, 'sound_manager') and env.sound_manager:
             env.sound_manager.play_countdown()
 
-        screen.fill(Style.BACKGROUND_COLOR)
+        screen.fill(Style.BACKGROUND_COLOR) # 用背景色清屏
+        
         countdown_surface = font.render(str(i), True, Style.TEXT_COLOR)
-        offset_y_val = env.renderer.offset_y if hasattr(env, 'renderer') and env.renderer else 0
+        
+        # ⭐️ 將倒數文字置於整個 screen 的中央
         countdown_rect = countdown_surface.get_rect(
-            center=(env.render_size // 2, env.render_size // 2 + offset_y_val)
+            center=(screen.get_width() // 2, screen.get_height() // 2)
         )
         screen.blit(countdown_surface, countdown_rect)
+        
         pygame.display.flip()
         pygame.time.wait(1000)
 
