@@ -10,6 +10,7 @@ from game.settings import GameSettings
 import pygame.mixer
 from utils import resource_path
 from game.sound import SoundManager # 確保 SoundManager 已引入
+DEBUG_MENU = True
 
 def show_level_selection():
     pygame.init()
@@ -78,10 +79,10 @@ def show_level_selection():
                     # pygame.quit() # 同上
                     return None  # 返回上層
 
-def select_input_method():
-    pygame.init()
+def select_input_method(): # ⭐️ 處理 ESC 返回
+    pygame.init() # 謹慎起見，保留，但理想情況是 main_loop 已初始化
     screen = pygame.display.set_mode((500, 500))
-    pygame.display.set_caption("Select Controller") # 修正錯字 Controller
+    pygame.display.set_caption("Select Controller")
 
     font_title = Style.get_font(Style.TITLE_FONT_SIZE)
     font_subtitle = Style.get_font(Style.SUBTITLE_FONT_SIZE)
@@ -90,23 +91,18 @@ def select_input_method():
     options = ["Keyboard", "Mouse"]
     selected = 0
     clock = pygame.time.Clock()
-    sound_manager = SoundManager() # 建立 SoundManager 實例
+    sound_manager = SoundManager() # 每個選單可以有自己的 sound_manager 實例或共享
 
-    # ⭐ 播放 menu 專屬背景音樂 ⭐
-    # pygame.mixer.init() # 最好在主程式開頭統一初始化一次
-    # pygame.mixer.music.load(resource_path("assets/menu_music.mp3"))
-    # pygame.mixer.music.set_volume(GameSettings.BACKGROUND_MUSIC_VOLUME)
-    # pygame.mixer.music.play(-1)
-    # 假設背景音樂已由 main.py 或更早的流程啟動和管理，這裡專注於點擊音效。
-    # 如果這是遊戲第一個選單，可以在此處啟動背景音樂。
+    if DEBUG_MENU: print("[Menu] select_input_method started")
 
-    while True:
+    running = True # ⭐️ 使用 running 迴圈控制
+    while running:
         screen.fill(Style.BACKGROUND_COLOR)
 
-        title_surf = font_title.render("Select Controller", True, Style.TEXT_COLOR) # 修正錯字
+        title_surf = font_title.render("Select Controller", True, Style.TEXT_COLOR)
         screen.blit(title_surf, Style.TITLE_POS)
 
-        subtitle_surf = font_subtitle.render("(UP/DOWN, ENTER to confirm)", True, Style.TEXT_COLOR)
+        subtitle_surf = font_subtitle.render("(UP/DOWN, ENTER to confirm, ESC to back)", True, Style.TEXT_COLOR) # ⭐️ 更新提示
         screen.blit(subtitle_surf, Style.SUBTITLE_POS)
 
         for i, option in enumerate(options):
@@ -120,19 +116,28 @@ def select_input_method():
 
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
+                if DEBUG_MENU: print("[Menu] select_input_method: QUIT event. Terminating.")
                 pygame.quit()
                 sys.exit()
             elif event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_DOWN:
                     selected = (selected + 1) % len(options)
-                    sound_manager.play_click() # <--- 加入音效
+                    sound_manager.play_click()
                 elif event.key == pygame.K_UP:
-                    selected = (selected - 1 + len(options)) % len(options) # 確保正數
-                    sound_manager.play_click() # <--- 加入音效
+                    selected = (selected - 1 + len(options)) % len(options)
+                    sound_manager.play_click()
                 elif event.key == pygame.K_RETURN:
-                    sound_manager.play_click() # <--- 加入音效
-                    return options[selected].lower()
-                # 此選單通常沒有 ESC 返回上層的選項，因為它是第一個主要選項
+                    sound_manager.play_click()
+                    if DEBUG_MENU: print(f"[Menu] select_input_method: Selected '{options[selected].lower()}'. Returning.")
+                    return options[selected].lower() # 返回選擇的輸入方式
+                elif event.key == pygame.K_ESCAPE: # ⭐️ 新增 ESC 處理
+                    sound_manager.play_click()
+                    if DEBUG_MENU: print("[Menu] select_input_method: ESC pressed. Returning None (back).")
+                    return "back_to_game_mode_select" # ⭐️ 返回一個特殊標誌
+
+    # 這一行理論上不會執行到，除非 running 變為 False 但沒有正常返回
+    if DEBUG_MENU: print("[Menu] select_input_method: Loop exited unexpectedly. Returning None.")
+    return None
 
 def select_skill(
     main_screen_surface, # 主螢幕 surface

@@ -146,41 +146,34 @@ def run_pvp_selection_phase(main_screen, sound_manager_instance):
 # --- 遊戲會話管理 (核心修改) ---
 def game_session(current_input_mode, p1_skill_code_from_menu, p2_skill_code_from_menu, current_game_mode_value):
     # ... (配置加載和 Env 初始化部分保持不變) ...
-    if DEBUG_MAIN: print(f"[SKILL_DEBUG][game_session] Starting. Mode: {current_game_mode_value}, P1 Skill: {p1_skill_code_from_menu}, P2 Skill: {p2_skill_code_from_menu}, P1 Input: {current_input_mode}")
-
     levels = LevelManager(models_folder=resource_path("models"))
-    common_game_config = {} 
-    player1_env_config = {}
-    opponent_env_config = {}
-    ai_agent = None 
-
     common_game_config = {
-        'mass': 1.0, 'e_ball_paddle': 1.0, 'mu_ball_paddle': 0.4,
-        'enable_spin': True, 'magnus_factor': 0.01,
-        'speed_increment': 0.002, 'speed_scale_every': 3,
-        'initial_ball_speed': 0.025, 
-        'initial_angle_deg_range': [-45, 45],
-        'freeze_duration_ms': GameSettings.FREEZE_DURATION_MS, 
-        'countdown_seconds': GameSettings.COUNTDOWN_SECONDS, 
+        'mass': 1.0, 'e_ball_paddle': 1.0, 'mu_ball_paddle': 0.4, 'enable_spin': True, 'magnus_factor': 0.01,
+        'speed_increment': 0.002, 'speed_scale_every': 3, 'initial_ball_speed': 0.025, 
+        'initial_angle_deg_range': [-45, 45], 
+        'freeze_duration_ms': GameSettings.FREEZE_DURATION_MS, # 例如 500ms 或 700ms
+        'countdown_seconds': GameSettings.COUNTDOWN_SECONDS, # 遊戲開始前的倒數秒數
         'bg_music': "bg_music_level1.mp3" 
     }
-    render_size_for_env = 400 
-    paddle_height_for_env = 10
-    ball_radius_for_env = 10
-
+    render_size_for_env = 400; paddle_height_for_env = 10; ball_radius_for_env = 10
+    # ... (根據 game_mode 填充 player1_env_config, opponent_env_config, common_game_config['bg_music'] 等) ...
+    # ... (例如，從 level_specific_config 或 pvp_game_specific_config 更新 common_game_config['freeze_duration_ms']) ...
+    # (為確保您擁有完整的上下文，我將複製這部分配置邏輯)
+    player1_env_config = {}; opponent_env_config = {}; ai_agent = None
     if current_game_mode_value == GameSettings.GameMode.PLAYER_VS_AI:
         selected_level_index = show_level_selection() 
-        if selected_level_index is None:
-            return "select_game_mode" 
+        if selected_level_index is None: return "select_game_mode" 
         levels.current_level = selected_level_index
         level_specific_config = levels.get_current_config() 
         if not level_specific_config:
             level_specific_config = { 
                 'player_life': 3, 'ai_life': 3, 'player_paddle_width': 100, 'ai_paddle_width': 60,
-                'initial_speed': 0.02, 'bg_music': "bg_music_level1.mp3"
+                'initial_speed': 0.02, 'bg_music': "bg_music_level1.mp3",
+                'freeze_duration_ms': common_game_config['freeze_duration_ms'] # 使用通用配置或關卡特定
             }
         common_game_config['initial_ball_speed'] = level_specific_config.get('initial_speed', common_game_config['initial_ball_speed'])
         common_game_config['bg_music'] = level_specific_config.get('bg_music', common_game_config['bg_music'])
+        common_game_config['freeze_duration_ms'] = level_specific_config.get('freeze_duration_ms', common_game_config['freeze_duration_ms'])
         player1_env_config = {
             'initial_x': 0.5, 'initial_paddle_width': level_specific_config.get('player_paddle_width', 100),
             'initial_lives': level_specific_config.get('player_life', 3), 'skill_code': p1_skill_code_from_menu, 'is_ai': False
@@ -195,11 +188,11 @@ def game_session(current_input_mode, p1_skill_code_from_menu, p2_skill_code_from
             if os.path.exists(absolute_model_path): ai_agent = AIAgent(absolute_model_path)
     elif current_game_mode_value == GameSettings.GameMode.PLAYER_VS_PLAYER:
         pvp_game_specific_config = { 
-            'player1_paddle_width': 100, 'player1_lives': 3,
-            'player2_paddle_width': 100, 'player2_lives': 3,
-            'bg_music': "bg_music_pvp.mp3" 
+            'player1_paddle_width': 100, 'player1_lives': 3, 'player2_paddle_width': 100, 'player2_lives': 3,
+            'bg_music': "bg_music_pvp.mp3", 'freeze_duration_ms': common_game_config.get('freeze_duration_ms', 500) 
         }
         common_game_config['bg_music'] = pvp_game_specific_config.get('bg_music', common_game_config['bg_music'])
+        common_game_config['freeze_duration_ms'] = pvp_game_specific_config.get('freeze_duration_ms', common_game_config['freeze_duration_ms'])
         player1_env_config = {
             'initial_x': 0.5, 'initial_paddle_width': pvp_game_specific_config.get('player1_paddle_width', 100),
             'initial_lives': pvp_game_specific_config.get('player1_lives', 3), 'skill_code': p1_skill_code_from_menu, 'is_ai': False
@@ -219,110 +212,153 @@ def game_session(current_input_mode, p1_skill_code_from_menu, p2_skill_code_from
     obs, _ = env.reset() 
     env.render() 
     if not env.renderer or not env.renderer.window: return "quit"
+    
+    # 背景音樂播放
     if hasattr(env, 'sound_manager') and env.sound_manager and hasattr(env, 'bg_music') and env.bg_music:
-        # ... (背景音樂播放邏輯)
         bg_music_path = resource_path(f"assets/{env.bg_music}") 
         if os.path.exists(bg_music_path):
-            try:
+            try: 
                 pygame.mixer.music.load(bg_music_path)
                 pygame.mixer.music.set_volume(GameSettings.BACKGROUND_MUSIC_VOLUME) 
                 env.sound_manager.play_bg_music()
             except pygame.error as e:
-                if DEBUG_MAIN: print(f"[game_session] Error loading/playing background music {bg_music_path}: {e}")
+                if DEBUG_MAIN: print(f"[DEBUG][game_session] Error loading/playing music {bg_music_path}: {e}")
         else:
-            if DEBUG_MAIN: print(f"[game_session] Warning: Background music file not found: {bg_music_path}")
-
-    show_countdown(env)
+            if DEBUG_MAIN: print(f"[DEBUG][game_session] Warning: Music file not found: {bg_music_path}")
+    
+    # --- 遊戲開始前的倒數 (這個倒數保留) ---
+    initial_countdown_duration = common_game_config.get('countdown_seconds', GameSettings.COUNTDOWN_SECONDS)
+    if initial_countdown_duration > 0 : 
+        if DEBUG_MAIN: print(f"[DEBUG][game_session] Starting initial countdown for {initial_countdown_duration} seconds.")
+        show_countdown(env) 
+    # --- 遊戲主迴圈 ---
     game_running = True
-    game_session_result_state = "select_game_mode"
-    # last_round_winner_is_p1 = None # 移除，改用 info['scorer']
+    game_session_result_state = "select_game_mode" 
 
     while game_running:
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 game_running = False
-                game_session_result_state = "quit"
-
+                game_session_result_state = "quit" 
+            elif event.type == pygame.KEYDOWN: 
+                if event.key == pygame.K_ESCAPE:
+                    if DEBUG_MAIN: print("[DEBUG][game_session] ESC pressed during gameplay. Ending session.")
+                    game_running = False
+                    game_session_result_state = "select_game_mode" 
         if not game_running: break
 
         keys = pygame.key.get_pressed()
-        p1_ingame_action = 1
+        p1_ingame_action = 1 # 預設不動
+        # ... (P1 和 Opponent/P2 的行動和技能啟用邏輯與上一版本相同) ...
         if current_input_mode == "keyboard":
             if keys[P1_GAME_KEYS['LEFT_KB']]: p1_ingame_action = 0
             elif keys[P1_GAME_KEYS['RIGHT_KB']]: p1_ingame_action = 2
-        elif current_input_mode == "mouse": # ... (滑鼠邏輯)
+        elif current_input_mode == "mouse":
             mouse_x_abs, _ = pygame.mouse.get_pos(); game_area_x_start = 0 
             mouse_x_in_game_area = mouse_x_abs - game_area_x_start
             mouse_x_relative = mouse_x_in_game_area / env.render_size if env.render_size > 0 else 0
             threshold = 0.02 
             if mouse_x_relative < env.player1.x - threshold: p1_ingame_action = 0
             elif mouse_x_relative > env.player1.x + threshold: p1_ingame_action = 2
-        
-        # ⭐️ 玩家一技能啟動
         if keys[P1_GAME_KEYS['SKILL_KB']]:
-            if DEBUG_MAIN: print(f"[SKILL_DEBUG][game_session] P1 skill key '{pygame.key.name(P1_GAME_KEYS['SKILL_KB'])}' pressed.")
+            if DEBUG_MAIN: print(f"[DEBUG][game_session] P1 skill key '{pygame.key.name(P1_GAME_KEYS['SKILL_KB'])}' pressed.")
             env.activate_skill(env.player1)
-
         opponent_ingame_action = 1
         if current_game_mode_value == GameSettings.GameMode.PLAYER_VS_AI:
             if ai_agent: opponent_ingame_action = ai_agent.select_action(obs.copy())
-        else: # PVP 模式
+        else: 
             if keys[P2_GAME_KEYS['LEFT']]: opponent_ingame_action = 0
             elif keys[P2_GAME_KEYS['RIGHT']]: opponent_ingame_action = 2
-            # ⭐️ 玩家二技能啟動
             if keys[P2_GAME_KEYS['SKILL']]:
-                if DEBUG_MAIN: print(f"[SKILL_DEBUG][game_session] P2 skill key '{pygame.key.name(P2_GAME_KEYS['SKILL'])}' pressed.")
+                if DEBUG_MAIN: print(f"[DEBUG][game_session] P2 skill key '{pygame.key.name(P2_GAME_KEYS['SKILL'])}' pressed.")
                 env.activate_skill(env.opponent)
-
+        
         obs, reward, round_done, game_over, info = env.step(p1_ingame_action, opponent_ingame_action)
-        env.render()
+        env.render() # ⭐️ 每幀主要渲染
 
         if hasattr(env, 'renderer') and env.renderer and hasattr(env.renderer, 'clock'):
             env.renderer.clock.tick(60)
-        else: time.sleep(0.016)
+        else: 
+            time.sleep(0.016) # 保持大約60FPS
 
-        if round_done:
+        if round_done: # 處理回合結束
+            if DEBUG_MAIN: print(f"[DEBUG][game_session] Round Done. Info: {info}. P1 Lives: {env.player1.lives}, Opponent Lives: {env.opponent.lives}")
+            
+            # ⭐️ 步驟 2.1: 確保在凍結期間持續渲染以顯示閃爍效果
             freeze_start_time = pygame.time.get_ticks()
-            while pygame.time.get_ticks() - freeze_start_time < env.freeze_duration:
+            # 使用 env 內部設定的 freeze_duration，這個值可能已由 common_config 或 level_config 設定
+            current_freeze_duration = env.freeze_duration 
+            
+            if DEBUG_MAIN: print(f"[DEBUG][game_session] Starting freeze effect (flashing) for {current_freeze_duration}ms.")
+
+            while pygame.time.get_ticks() - freeze_start_time < current_freeze_duration:
+                # 在凍結期間仍然需要處理事件，以便能按 ESC 退出或關閉視窗
                 for event_freeze in pygame.event.get():
                     if event_freeze.type == pygame.QUIT:
-                        game_running = False; game_session_result_state = "quit"; break
-                if not game_running: break
-                pygame.time.delay(16)
-            if not game_running: break
+                        game_running = False
+                        game_session_result_state = "quit"
+                        break
+                    elif event_freeze.type == pygame.KEYDOWN: 
+                        if event_freeze.key == pygame.K_ESCAPE:
+                            if DEBUG_MAIN: print("[DEBUG][game_session] ESC pressed during freeze. Ending session.")
+                            game_running = False
+                            game_session_result_state = "select_game_mode"
+                            break 
+                if not game_running: break # 如果在內部事件處理中已停止，則跳出凍結迴圈
+                
+                env.render() # ⭐️⭐️⭐️ 關鍵：在凍結期間持續調用 render() ⭐️⭐️⭐️
+                
+                pygame.time.delay(16) # 短暫延遲，大約60FPS的間隔，避免CPU過度使用
+                                      # 並允許閃爍效果有足夠的幀數來呈現
 
-            if game_over:
+            if not game_running: break # 如果因QUIT或ESC退出，則跳出主遊戲迴圈
+
+            if DEBUG_MAIN: print(f"[DEBUG][game_session] Freeze effect finished. Game over: {game_over}")
+
+            if game_over: # 遊戲徹底結束
+                # ... (遊戲結束橫幅顯示邏輯，與之前相同) ...
                 p1_wins_msg = "PLAYER 1 WINS!" if current_game_mode_value == GameSettings.GameMode.PLAYER_VS_PLAYER else "YOU WIN!"
                 p1_loses_msg = "PLAYER 2 WINS!" if current_game_mode_value == GameSettings.GameMode.PLAYER_VS_PLAYER else "YOU LOSE!"
-                p1_color = Style.PLAYER_COLOR; opponent_color = Style.AI_COLOR
+                p1_color = Style.PLAYER_COLOR; opponent_color = Style.AI_COLOR # PvP 時可為 P2 設定不同顏色
                 if env.player1.lives <= 0:
                     if env.sound_manager: env.sound_manager.play_lose_sound()
                     show_result_banner(env.renderer.window, p1_loses_msg, opponent_color)
                 elif env.opponent.lives <= 0:
                     if env.sound_manager: env.sound_manager.play_win_sound()
                     show_result_banner(env.renderer.window, p1_wins_msg, p1_color)
-                game_running = False
-                game_session_result_state = "select_game_mode"
-            else: # 回合結束，遊戲未結束
-                scorer = info.get('scorer')
-                if DEBUG_MAIN: print(f"[SKILL_DEBUG][game_session] Round ended, scorer: {scorer}. Resetting ball for next round.")
-                if scorer == 'player1': # P1 得分，下一球由對手 (opponent) 發球區發球
-                    env.reset_ball_after_score(scored_by_player1=True) # True 表示 P1 得分
-                elif scorer == 'opponent': # 對手得分，下一球由 P1 發球區發球
-                    env.reset_ball_after_score(scored_by_player1=False) # False 表示 P1 失分
-                else: # 未知得分者或意外情況
+                game_running = False # 結束遊戲會話
+                game_session_result_state = "select_game_mode" # 返回模式選擇
+            else: # 回合結束，但遊戲未結束
+                scorer = info.get('scorer') # 從 env.step 返回的 info 中獲取得分者
+                if DEBUG_MAIN: print(f"[DEBUG][game_session] Round ended, scorer: {scorer}. Resetting ball for next round (NO COUNTDOWN).")
+                
+                # 根據得分者決定下一球由誰的區域發出
+                # env.reset_ball_after_score(scored_by_player1=True) 表示 P1 得分，球從對手區發
+                if scorer == 'player1': 
+                    env.reset_ball_after_score(scored_by_player1=True) 
+                elif scorer == 'opponent': 
+                    env.reset_ball_after_score(scored_by_player1=False)
+                else: 
+                    if DEBUG_MAIN: print(f"[DEBUG][game_session] Scorer info ('{scorer}') not definitive for serve, randomizing.")
                     env.reset_ball_after_score(scored_by_player1=random.choice([True, False]))
                 
-                obs, _ = env.reset() # 這裡的 reset 主要是重置球，PlayerState 的 lives 不會被 reset
-                                     # 但 PlayerState 的 paddle_width/color 等會被 reset_state 重置
-                show_countdown(env)
+                obs = env._get_obs() # 獲取新回合的觀測值
+                
+                # ⭐️⭐️⭐️ 步驟 2.2: 移除回合間的倒數 ⭐️⭐️⭐️
+                # show_countdown(env) # 已移除或註解掉!
+                
+                if DEBUG_MAIN: print("[DEBUG][game_session] Ball to be served immediately after freeze.")
     
+    # 遊戲會話結束後的清理
     if hasattr(env, 'sound_manager'): env.sound_manager.stop_bg_music()
-    env.close()
+    env.close() # 關閉環境資源 (Renderer 等)
     return game_session_result_state
 
 # ... (main_loop 和 if __name__ == '__main__': 部分保持不變) ...
+
+# ... (main_loop 和 if __name__ == '__main__': 部分保持不變) ...
 def main_loop():
+    # ... (current_input_mode, p1_selected_skill_code, etc. 保持不變) ...
     current_input_mode = "keyboard" 
     p1_selected_skill_code = None
     p2_selected_skill_code = None 
@@ -333,24 +369,40 @@ def main_loop():
     pygame.display.set_caption("Pong Soul")
     next_game_flow_step = "select_game_mode"
     running = True
+
     while running:
         if DEBUG_MAIN: print(f"[main_loop] Current step: {next_game_flow_step}")
+
         if next_game_flow_step == "select_game_mode":
-            if main_screen.get_width() != 500 or main_screen.get_height() != 500: # 更安全的尺寸檢查
+            # ... (與之前相同)
+            if main_screen.get_width() != 500 or main_screen.get_height() != 500: 
                  main_screen = pygame.display.set_mode((500,500))
             pygame.display.set_caption("Pong Soul - Select Mode")
             current_game_mode = select_game_mode() 
             if current_game_mode is None: next_game_flow_step = "quit"; continue
             p1_selected_skill_code = None; p2_selected_skill_code = None
             next_game_flow_step = "select_input"
+
         elif next_game_flow_step == "select_input":
             if main_screen.get_width() != 500 or main_screen.get_height() != 500:
                  main_screen = pygame.display.set_mode((500,500))
             pygame.display.set_caption("Pong Soul - Select Controller")
-            current_input_mode = select_input_method() 
-            if current_input_mode is None: next_game_flow_step = "select_game_mode"; continue
+            
+            selection_result = select_input_method() # ⭐️ 接收返回值
+            
+            if selection_result == "back_to_game_mode_select": # ⭐️ 檢查是否返回 "back"
+                next_game_flow_step = "select_game_mode"
+                continue
+            elif selection_result is None: # 可能的意外退出或未處理的返回
+                if DEBUG_MAIN: print("[main_loop] select_input_method returned None unexpectedly, going to game mode select.")
+                next_game_flow_step = "select_game_mode" # 作為安全回退
+                continue
+            
+            current_input_mode = selection_result # "keyboard" or "mouse"
+            
             if current_game_mode == GameSettings.GameMode.PLAYER_VS_AI:
                 next_game_flow_step = "select_skill_pva"
+            # ... (後續 PvP 邏輯與之前相同) ...
             elif current_game_mode == GameSettings.GameMode.PLAYER_VS_PLAYER:
                 pvp_menu_width, pvp_menu_height = 1000, 600 
                 if main_screen.get_width() != pvp_menu_width or main_screen.get_height() != pvp_menu_height:
@@ -361,6 +413,9 @@ def main_loop():
                     next_game_flow_step = "select_input"; continue
                 next_game_flow_step = game_session(current_input_mode, p1_selected_skill_code, p2_selected_skill_code, current_game_mode)
             else: next_game_flow_step = "select_game_mode"
+
+
+        # ... (select_skill_pva, quit, else 邏輯與之前相同) ...
         elif next_game_flow_step == "select_skill_pva":
             if main_screen.get_width() != 500 or main_screen.get_height() != 500:
                  main_screen = pygame.display.set_mode((500,500))
@@ -370,12 +425,13 @@ def main_loop():
                 main_screen_surface=main_screen, render_area=pva_render_area,
                 key_map=DEFAULT_MENU_KEYS, sound_manager=sound_manager, player_identifier="Player"
             )
-            if p1_selected_skill_code is None: next_game_flow_step = "select_input"; continue
+            if p1_selected_skill_code is None: next_game_flow_step = "select_input"; continue # 如果技能選擇也允許ESC返回到輸入選擇
             next_game_flow_step = game_session(current_input_mode, p1_selected_skill_code, None, current_game_mode)
         elif next_game_flow_step == "quit": running = False
         else: 
             if next_game_flow_step not in ["select_game_mode", "select_input", "select_skill_pva", "quit"]:
                 next_game_flow_step = "select_game_mode" 
+    
     if DEBUG_MAIN: print("[main_loop] Exiting application.")
     pygame.quit()
     sys.exit()
