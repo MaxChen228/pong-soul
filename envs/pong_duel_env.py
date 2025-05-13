@@ -220,6 +220,8 @@ class PongDuelEnv:
             angle_rad = math.atan2(self.ball_vx, self.ball_vy) if current_speed_magnitude !=0 else random.uniform(0, 2*math.pi)
             self.ball_vx = target_speed_magnitude * math.sin(angle_rad)
             self.ball_vy = target_speed_magnitude * math.cos(angle_rad)
+# envs/pong_duel_env.py
+# ... (大部分內容保持不變) ...
 
     def step(self, player1_action_input, opponent_action_input):
         current_time_ticks = pygame.time.get_ticks()
@@ -234,36 +236,30 @@ class PongDuelEnv:
         self.opponent.prev_x = self.opponent.x
         old_ball_y_for_collision = self.ball_y
 
-        # ⭐️ 更新技能狀態 (P1)
         if self.player1.skill_instance and self.player1.skill_instance.is_active():
-            # print(f"[TEMP_DEBUG] Updating P1 skill: {self.player1.skill_instance.__class__.__name__}")
             self.player1.skill_instance.update()
         
-        # ⭐️ 更新技能狀態 (Opponent)
         if self.opponent.skill_instance and self.opponent.skill_instance.is_active():
-            # print(f"[TEMP_DEBUG] Updating Opponent skill: {self.opponent.skill_instance.__class__.__name__}")
             self.opponent.skill_instance.update()
             
-        # ⭐️ 全局時間尺度 (如果有多個技能影響時間，需要決策邏輯)
-        # 暫時簡化：如果 P1 的 slowmo 啟用，則使用 P1 的時間尺度。
-        # 如果 P2 的 slowmo 也啟用，且更慢，則使用 P2 的。 (或取最小值)
-        # 這個邏輯需要根據 SlowMoSkill 的具體實現來調整。
-        # 目前 SlowMoSkill 修改的是 env.time_scale，這會導致後者覆蓋前者。
-        # 更好的做法是技能返回其期望的 time_scale，然後 env 取最小值。
-        # 為了簡單起見，我們暫時假設技能 update 會直接修改 self.time_scale。
-        # 在技能 update 後，重置 self.time_scale，然後由技能決定是否再次修改。
-        self.time_scale = 1.0 # 預設為正常速度
+        self.time_scale = 1.0 
         if self.player1.skill_instance and isinstance(self.player1.skill_instance, SlowMoSkill) and self.player1.skill_instance.is_active():
-             self.time_scale = self.player1.skill_instance.slow_time_scale # 假設 SlowMoSkill 有此屬性
+             # ⭐️ 修正屬性名稱
+             self.time_scale = self.player1.skill_instance.slow_time_scale_value
+             if DEBUG_ENV: print(f"[SKILL_DEBUG][PongDuelEnv.step] P1 SlowMo active. Time scale set to: {self.time_scale}")
+
         if self.opponent.skill_instance and isinstance(self.opponent.skill_instance, SlowMoSkill) and self.opponent.skill_instance.is_active():
-             # 如果兩者都啟用慢動作，取更慢的那個 (或者其他合併邏輯)
-             opponent_slowmo_scale = self.opponent.skill_instance.slow_time_scale
-             if opponent_slowmo_scale < self.time_scale : self.time_scale = opponent_slowmo_scale
+             # ⭐️ 修正屬性名稱
+             opponent_slowmo_scale = self.opponent.skill_instance.slow_time_scale_value
+             if opponent_slowmo_scale < self.time_scale:
+                 self.time_scale = opponent_slowmo_scale
+             if DEBUG_ENV: print(f"[SKILL_DEBUG][PongDuelEnv.step] Opponent SlowMo active. Combined time scale set to: {self.time_scale}")
 
 
-        # 移動處理 (與之前相同)
         player_move_speed = 0.03
-        ts = self.time_scale
+        ts = self.time_scale # ⭐️ ts 現在會受到技能影響
+        # ... (移動邏輯, 球物理更新, 碰撞及計分邏輯等保持不變) ...
+        # ... (確保這些邏輯都使用 ts 作為時間因子) ...
         if player1_action_input == 0: self.player1.x -= player_move_speed * ts
         elif player1_action_input == 2: self.player1.x += player_move_speed * ts
         if opponent_action_input == 0: self.opponent.x -= player_move_speed * ts
@@ -271,50 +267,41 @@ class PongDuelEnv:
         self.player1.x = np.clip(self.player1.x, 0.0, 1.0)
         self.opponent.x = np.clip(self.opponent.x, 0.0, 1.0)
 
-        # ⭐️ 判斷是否執行預設球體物理
         run_normal_ball_physics = True
-        # 如果 P1 的技能覆蓋物理
         if self.player1.skill_instance and self.player1.skill_instance.is_active() and self.player1.skill_instance.overrides_ball_physics:
             run_normal_ball_physics = False
-            if DEBUG_ENV: print(f"[SKILL_DEBUG][PongDuelEnv.step] P1 skill '{self.player1.skill_instance.__class__.__name__}' overrides ball physics.")
-        # 如果 Opponent 的技能覆蓋物理 (如果 P1 未覆蓋)
         elif self.opponent.skill_instance and self.opponent.skill_instance.is_active() and self.opponent.skill_instance.overrides_ball_physics:
             run_normal_ball_physics = False
-            if DEBUG_ENV: print(f"[SKILL_DEBUG][PongDuelEnv.step] Opponent skill '{self.opponent.skill_instance.__class__.__name__}' overrides ball physics.")
-
-
-        # 球物理更新、碰撞及計分邏輯 (與之前相同，但現在 run_normal_ball_physics 控制是否執行)
-        info = {} # 用於返回額外信息，例如得分者
+        
+        info = {} 
         reward = 0
         done = False
         game_over = False
 
         if run_normal_ball_physics:
-            if self.enable_spin: # ... (spin logic)
+            if self.enable_spin:
                 spin_force_x = self.magnus_factor * self.spin * self.ball_vy if self.ball_vy !=0 else 0
-                self.ball_vx += spin_force_x * ts
-            self.ball_x += self.ball_vx * ts # ... (ball movement)
+                self.ball_vx += spin_force_x * ts 
+            self.ball_x += self.ball_vx * ts 
             self.ball_y += self.ball_vy * ts
 
-            self.trail.append((self.ball_x, self.ball_y)) # ... (trail logic)
+            self.trail.append((self.ball_x, self.ball_y)) 
             if len(self.trail) > self.max_trail_length: self.trail.pop(0)
 
-            if self.ball_x - self.ball_radius_normalized <= 0: # ... (wall collision)
+            if self.ball_x - self.ball_radius_normalized <= 0: 
                 self.ball_x = self.ball_radius_normalized
                 self.ball_vx *= -1
             elif self.ball_x + self.ball_radius_normalized >= 1:
                 self.ball_x = 1 - self.ball_radius_normalized
                 self.ball_vx *= -1
             
-            collided_with_paddle_this_step = False # 重置此標誌
+            collided_with_paddle_this_step = False 
 
-            # 對手球拍 (上方)
             opponent_paddle_surface_y = self.paddle_height_normalized
             opponent_paddle_contact_y = opponent_paddle_surface_y + self.ball_radius_normalized
             opponent_paddle_half_w = self.opponent.paddle_width_normalized / 2
             if old_ball_y_for_collision > opponent_paddle_contact_y and self.ball_y <= opponent_paddle_contact_y:
                 if abs(self.ball_x - self.opponent.x) < opponent_paddle_half_w + self.ball_radius_normalized * 0.5:
-                    # ... (collision physics with opponent paddle) ...
                     self.ball_y = opponent_paddle_contact_y; vn = self.ball_vy; vt = self.ball_vx
                     u_paddle = (self.opponent.x - self.opponent.prev_x) / ts if ts != 0 else 0
                     vn_post, vt_post, omega_post = collide_sphere_with_moving_plane(vn, vt, u_paddle, self.spin, self.e_ball_paddle, self.mu_ball_paddle, self.mass, self.ball_radius_normalized)
@@ -329,14 +316,12 @@ class PongDuelEnv:
                     self.opponent.lives -= 1; self.player1.last_hit_time = current_time_ticks
                     self.freeze_timer = current_time_ticks; done = True; info['scorer'] = 'player1'
             
-            # 玩家1球拍 (下方)
             if not done:
                 player1_paddle_surface_y = 1.0 - self.paddle_height_normalized
                 player1_paddle_contact_y = player1_paddle_surface_y - self.ball_radius_normalized
                 player1_paddle_half_w = self.player1.paddle_width_normalized / 2
                 if old_ball_y_for_collision < player1_paddle_contact_y and self.ball_y >= player1_paddle_contact_y:
                     if abs(self.ball_x - self.player1.x) < player1_paddle_half_w + self.ball_radius_normalized * 0.5:
-                        # ... (collision physics with player1 paddle) ...
                         self.ball_y = player1_paddle_contact_y; vn = -self.ball_vy; vt = self.ball_vx
                         u_paddle = (self.player1.x - self.player1.prev_x) / ts if ts != 0 else 0
                         vn_post, vt_post, omega_post = collide_sphere_with_moving_plane(vn, vt, u_paddle, self.spin, self.e_ball_paddle, self.mu_ball_paddle, self.mass, self.ball_radius_normalized)
@@ -350,16 +335,12 @@ class PongDuelEnv:
                     if not collided_with_paddle_this_step:
                         self.player1.lives -= 1; self.opponent.last_hit_time = current_time_ticks
                         self.freeze_timer = current_time_ticks; done = True; info['scorer'] = 'opponent'
-        # else: 球的移動和碰撞已由技能處理
-        # 如果技能覆蓋物理，技能的 update 方法需要負責檢測碰撞和得分，並設定 done=True, info['scorer']
-        # 以及更新 self.player1.lives 或 self.opponent.lives。
-        # SoulEaterBugSkill 就需要這樣的邏輯。
-
+        
         if done and DEBUG_ENV:
             print(f"[SKILL_DEBUG][PongDuelEnv.step] Round ended. Scorer: {info.get('scorer')}. P1 Lives: {self.player1.lives}, Opponent Lives: {self.opponent.lives}")
 
         game_over = self.player1.lives <= 0 or self.opponent.lives <= 0
-        if game_over and done and DEBUG_ENV: # 確保 done 為 True 時才判斷 game_over
+        if game_over and done and DEBUG_ENV: 
             print(f"[SKILL_DEBUG][PongDuelEnv.step] GAME OVER detected.")
         
         return self._get_obs(), reward, done, game_over, info
