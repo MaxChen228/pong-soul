@@ -358,14 +358,23 @@ def game_session(current_input_mode, p1_skill_code_from_menu, p2_skill_code_from
 
 # ... (main_loop 和 if __name__ == '__main__': 部分保持不變) ...
 def main_loop():
-    # ... (current_input_mode, p1_selected_skill_code, etc. 保持不變) ...
     current_input_mode = "keyboard" 
     p1_selected_skill_code = None
     p2_selected_skill_code = None 
     current_game_mode = None
     sound_manager = SoundManager() 
-    main_screen_width, main_screen_height = 500, 500
-    main_screen = pygame.display.set_mode((main_screen_width, main_screen_height))
+    
+    menu_width, menu_height = 500, 500 # 標準選單大小
+    
+    # ⭐️ PvP 模式的視窗尺寸 (類似技能選擇選單)
+    pvp_window_width, pvp_window_height = 1000, 600 
+    # PvA 模式的視窗尺寸 (由 Renderer 內部根據 render_size 和 offset_y 計算)
+    # 我們可以預期 PvA 的 render_size 通常是 400, offset_y 是 100, 所以 PvA 視窗是 400x600
+    # 為了統一，可以讓 PvA 也使用 pvp_window_height，或者在 Renderer 中調整
+    pva_window_width = 400 # 假設 PvA 寬度固定
+    pva_window_height = 600 # 假設 PvA 高度與 PvP 相同以便切換
+
+    main_screen = pygame.display.set_mode((menu_width, menu_height))
     pygame.display.set_caption("Pong Soul")
     next_game_flow_step = "select_game_mode"
     running = True
@@ -374,9 +383,8 @@ def main_loop():
         if DEBUG_MAIN: print(f"[main_loop] Current step: {next_game_flow_step}")
 
         if next_game_flow_step == "select_game_mode":
-            # ... (與之前相同)
-            if main_screen.get_width() != 500 or main_screen.get_height() != 500: 
-                 main_screen = pygame.display.set_mode((500,500))
+            if main_screen.get_size() != (menu_width, menu_height):
+                 main_screen = pygame.display.set_mode((menu_width, menu_height))
             pygame.display.set_caption("Pong Soul - Select Mode")
             current_game_mode = select_game_mode() 
             if current_game_mode is None: next_game_flow_step = "quit"; continue
@@ -384,51 +392,58 @@ def main_loop():
             next_game_flow_step = "select_input"
 
         elif next_game_flow_step == "select_input":
-            if main_screen.get_width() != 500 or main_screen.get_height() != 500:
-                 main_screen = pygame.display.set_mode((500,500))
+            if main_screen.get_size() != (menu_width, menu_height):
+                 main_screen = pygame.display.set_mode((menu_width, menu_height))
             pygame.display.set_caption("Pong Soul - Select Controller")
-            
-            selection_result = select_input_method() # ⭐️ 接收返回值
-            
-            if selection_result == "back_to_game_mode_select": # ⭐️ 檢查是否返回 "back"
-                next_game_flow_step = "select_game_mode"
-                continue
-            elif selection_result is None: # 可能的意外退出或未處理的返回
-                if DEBUG_MAIN: print("[main_loop] select_input_method returned None unexpectedly, going to game mode select.")
-                next_game_flow_step = "select_game_mode" # 作為安全回退
-                continue
-            
-            current_input_mode = selection_result # "keyboard" or "mouse"
+            selection_result = select_input_method() 
+            if selection_result == "back_to_game_mode_select": next_game_flow_step = "select_game_mode"; continue
+            elif selection_result is None: next_game_flow_step = "select_game_mode"; continue
+            current_input_mode = selection_result
             
             if current_game_mode == GameSettings.GameMode.PLAYER_VS_AI:
                 next_game_flow_step = "select_skill_pva"
-            # ... (後續 PvP 邏輯與之前相同) ...
             elif current_game_mode == GameSettings.GameMode.PLAYER_VS_PLAYER:
-                pvp_menu_width, pvp_menu_height = 1000, 600 
-                if main_screen.get_width() != pvp_menu_width or main_screen.get_height() != pvp_menu_height:
-                    main_screen = pygame.display.set_mode((pvp_menu_width, pvp_menu_height))
+                # ⭐️ PvP 技能選擇，使用寬視窗
+                if main_screen.get_size() != (pvp_window_width, pvp_window_height):
+                    main_screen = pygame.display.set_mode((pvp_window_width, pvp_window_height))
                 pygame.display.set_caption("Pong Soul - PVP Skill Selection")
+                
                 p1_selected_skill_code, p2_selected_skill_code = run_pvp_selection_phase(main_screen, sound_manager)
                 if p1_selected_skill_code is None or p2_selected_skill_code is None: 
                     next_game_flow_step = "select_input"; continue
+                
+                # ⭐️ PvP 遊戲開始前，確保是寬視窗
+                if main_screen.get_size() != (pvp_window_width, pvp_window_height):
+                    main_screen = pygame.display.set_mode((pvp_window_width, pvp_window_height))
+                pygame.display.set_caption("Pong Soul - PvP Battle!")
                 next_game_flow_step = game_session(current_input_mode, p1_selected_skill_code, p2_selected_skill_code, current_game_mode)
             else: next_game_flow_step = "select_game_mode"
 
-
-        # ... (select_skill_pva, quit, else 邏輯與之前相同) ...
         elif next_game_flow_step == "select_skill_pva":
-            if main_screen.get_width() != 500 or main_screen.get_height() != 500:
-                 main_screen = pygame.display.set_mode((500,500))
+            if main_screen.get_size() != (menu_width,menu_height):
+                 main_screen = pygame.display.set_mode((menu_width,menu_height))
             pygame.display.set_caption("Pong Soul - Select Skill (PVA)")
             pva_render_area = main_screen.get_rect()
             p1_selected_skill_code = select_skill(
                 main_screen_surface=main_screen, render_area=pva_render_area,
                 key_map=DEFAULT_MENU_KEYS, sound_manager=sound_manager, player_identifier="Player"
             )
-            if p1_selected_skill_code is None: next_game_flow_step = "select_input"; continue # 如果技能選擇也允許ESC返回到輸入選擇
+            if p1_selected_skill_code is None: next_game_flow_step = "select_input"; continue
+            
+            # ⭐️ PvA 遊戲開始前，設定 PvA 的視窗大小
+            # 注意：Renderer 初始化時會根據 env.render_size 和 offset_y 再次 set_mode
+            # 這裡的 set_mode 主要是為了在 game_session 調用前，main_screen 有一個合適的 surface
+            # 理想情況下，Renderer 應該接收一個已存在的 surface，而不是自己 set_mode，但這是後續優化
+            if main_screen.get_size() != (pva_window_width, pva_window_height):
+                 main_screen = pygame.display.set_mode((pva_window_width, pva_window_height))
+            pygame.display.set_caption("Pong Soul - PvA Mode")
             next_game_flow_step = game_session(current_input_mode, p1_selected_skill_code, None, current_game_mode)
+        
         elif next_game_flow_step == "quit": running = False
         else: 
+            # 從 game_session 返回後，恢復到選單視窗大小
+            if main_screen.get_size() != (menu_width, menu_height):
+                 main_screen = pygame.display.set_mode((menu_width, menu_height))
             if next_game_flow_step not in ["select_game_mode", "select_input", "select_skill_pva", "quit"]:
                 next_game_flow_step = "select_game_mode" 
     

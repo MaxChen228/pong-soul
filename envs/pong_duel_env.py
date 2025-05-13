@@ -330,11 +330,11 @@ class PongDuelEnv:
 
 
     def render(self):
-        # ... (此方法內容保持不變) ...
         if self.renderer is None:
             if DEBUG_ENV: print("[PongDuelEnv.render] Renderer not initialized. Creating one.")
-            self.renderer = Renderer(self) 
-        self.renderer.render() 
+            # ⭐️ 關鍵修改：將 self.game_mode 傳遞給 Renderer 的構造函數
+            self.renderer = Renderer(self, game_mode=self.game_mode)
+        self.renderer.render()
 
     def close(self):
         # ... (此方法內容保持不變) ...
