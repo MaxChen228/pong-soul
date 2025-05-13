@@ -1,202 +1,209 @@
-# render.py
+# game/render.py
 
 import math
 import pygame
 from game.theme import Style
 from game.settings import GameSettings
-from game.skills.skill_config import SKILL_CONFIGS
-from utils import resource_path # <--- 加入這行
+# from game.skills.skill_config import SKILL_CONFIGS # 暫時不用
+from utils import resource_path
+
+DEBUG_RENDERER = True # ⭐️ 除錯開關
 
 class Renderer:
-    def __init__(self, env):
-        pygame.init()
+    def __init__(self, env): # env 是 PongDuelEnv 的實例
+        if DEBUG_RENDERER: print("[Renderer.__init__] Initializing Renderer...")
+        pygame.init() # 確保 Pygame 在此處也初始化，儘管 main.py 已做
         self.env = env
-        self.render_size = env.render_size
-        self.offset_y = 100
-        self.window = pygame.display.set_mode((self.render_size, self.render_size + 2*self.offset_y))
-        self.clock = pygame.time.Clock()
-        self.ball_image = pygame.transform.smoothscale(
-            pygame.image.load(resource_path("assets/sunglasses.png")).convert_alpha(), # <--- 修改這裡
-            (env.ball_radius*2, env.ball_radius*2)
-        )
-        self.ball_angle = 0
+        self.render_size = env.render_size # 遊戲區域的邏輯大小
+        self.offset_y = 100 # 上下UI區域的高度，可考慮移到 Style 或 GameSettings
+        
+        # 創建視窗
+        # 注意：視窗的總高度是 render_size (遊戲區) + 2 * offset_y (上下UI區)
+        # PongDuelEnv 中的 render_size 主要指遊戲核心區域的寬度和高度基準
+        # 而 Renderer 創建的視窗是包含UI的總視窗
+        self.window_width = self.render_size
+        self.window_height = self.render_size + 2 * self.offset_y
+        self.window = pygame.display.set_mode((self.window_width, self.window_height))
+        pygame.display.set_caption("Pong Soul (Renderer Initialized)") # 更改標題以確認
 
-        # 共用的 技能條特效
+        self.clock = pygame.time.Clock()
+
+        # 球的圖片資源加載
+        # ⭐️ 使用 env.ball_radius_px 替換 env.ball_radius
+        if DEBUG_RENDERER: print(f"[Renderer.__init__] Loading ball image. env.ball_radius_px: {env.ball_radius_px}")
+        try:
+            ball_diameter_px = int(env.ball_radius_px * 2)
+            if ball_diameter_px <= 0:
+                if DEBUG_RENDERER: print(f"[Renderer.__init__] Warning: ball_diameter_px is {ball_diameter_px}. Setting to default 20.")
+                ball_diameter_px = 20 # 提供一個預設值以避免 transform 錯誤
+
+            self.ball_image_original = pygame.image.load(resource_path("assets/sunglasses.png")).convert_alpha()
+            self.ball_image = pygame.transform.smoothscale(
+                self.ball_image_original,
+                (ball_diameter_px, ball_diameter_px)
+            )
+        except pygame.error as e:
+            if DEBUG_RENDERER: print(f"[Renderer.__init__] Pygame error loading or scaling ball image: {e}")
+            # 創建一個預設的圓形 surface 作為備用球體圖像
+            ball_diameter_px = int(env.ball_radius_px * 2) if env.ball_radius_px * 2 > 0 else 20
+            self.ball_image = pygame.Surface((ball_diameter_px, ball_diameter_px), pygame.SRCALPHA)
+            pygame.draw.circle(self.ball_image, (255, 255, 255), (ball_diameter_px // 2, ball_diameter_px // 2), ball_diameter_px // 2)
+            if DEBUG_RENDERER: print(f"[Renderer.__init__] Created fallback ball image.")
+        except Exception as e:
+            if DEBUG_RENDERER: print(f"[Renderer.__init__] Generic error loading or scaling ball image: {e}")
+            # 通用錯誤處理
+            ball_diameter_px = 20 # Default size
+            self.ball_image = pygame.Surface((ball_diameter_px, ball_diameter_px), pygame.SRCALPHA)
+            pygame.draw.circle(self.ball_image, (255, 0, 0), (ball_diameter_px // 2, ball_diameter_px // 2), ball_diameter_px // 2) # 紅色表示錯誤
+            if DEBUG_RENDERER: print(f"[Renderer.__init__] Created ERROR ball image.")
+
+
+        self.ball_angle = 0 # 用於球體旋轉動畫
+
+        # 共用的 技能條特效 (暫時保留，後續階段處理與 PlayerState 的技能綁定)
         self.skill_glow_position = 0
         self.skill_glow_trail = []
         self.max_skill_glow_trail_length = 15
 
+        if DEBUG_RENDERER: print("[Renderer.__init__] Renderer initialization complete.")
+
     def render(self):
+        # ⭐️⭐️⭐️ 重要提示：此 render 方法尚未更新以使用 env.player1 和 env.opponent ⭐️⭐️⭐️
+        # ⭐️⭐️⭐️ 它仍然依賴舊的 env.player_x, env.ai_x 等屬性，這將在下一階段修正 ⭐️⭐️⭐️
+        # ⭐️⭐️⭐️ 目前的目標是先解決 __init__ 的錯誤讓遊戲能啟動並看到畫面 ⭐️⭐️⭐️
+        if not self.env: # 基本檢查
+            if DEBUG_RENDERER: print("[Renderer.render] Error: self.env is not set.")
+            return
+
         freeze_active = (
-            self.env.freeze_timer>0
-            and (pygame.time.get_ticks() - self.env.freeze_timer< self.env.freeze_duration)
+            self.env.freeze_timer > 0
+            and (pygame.time.get_ticks() - self.env.freeze_timer < self.env.freeze_duration)
         )
         if freeze_active:
-            if (pygame.time.get_ticks()//100)%2==0:
-                self.window.fill((220,220,220))
+            if (pygame.time.get_ticks() // 100) % 2 == 0:
+                self.window.fill((220, 220, 220))
             else:
-                self.window.fill((10,10,10))
+                self.window.fill((10, 10, 10))
         else:
             self.window.fill(Style.BACKGROUND_COLOR)
 
         offset_y = self.offset_y
 
-        # 先繪製最基礎 UI(上下區塊)
-        active_skill= self.env.skills.get(self.env.active_skill_name, None)
-        ui_overlay_color= tuple(max(0,c-20) for c in Style.BACKGROUND_COLOR)
-        pygame.draw.rect(self.window, ui_overlay_color, (0,0,self.render_size,offset_y))
-        pygame.draw.rect(self.window, ui_overlay_color, (0, offset_y+self.render_size, self.render_size, offset_y))
+        # UI 區域背景 (暫時保留簡單繪製)
+        ui_overlay_color = tuple(max(0, c - 20) for c in Style.BACKGROUND_COLOR)
+        pygame.draw.rect(self.window, ui_overlay_color, (0, 0, self.window_width, offset_y))
+        pygame.draw.rect(self.window, ui_overlay_color, (0, offset_y + self.env.render_size, self.window_width, offset_y))
 
-        # === 球與板子位置 ===
-        cx= int(self.env.ball_x* self.render_size)
-        cy= int(self.env.ball_y* self.render_size)+ offset_y
-        px= int(self.env.player_x* self.render_size)
-        ax= int(self.env.ai_x* self.render_size)
+        # === 球與板子位置 (使用舊的屬性訪問方式，待修正) ===
+        # 這些 env 的直接屬性訪問會在下一階段修正為 env.player1.x, env.opponent.x 等
+        try:
+            # 球的位置轉換 (歸一化 -> 像素)
+            cx_px = int(self.env.ball_x * self.env.render_size)
+            cy_px = int(self.env.ball_y * self.env.render_size) + offset_y # 加上上方UI區域的偏移
 
-        # 全局拖尾
-        for i, (tx,ty) in enumerate(self.env.trail):
-            fade= int(255*(i+1)/ len(self.env.trail))
-            color= (*Style.BALL_COLOR, fade)
-            t_surf= pygame.Surface((self.render_size, self.render_size+200), pygame.SRCALPHA)
-            pygame.draw.circle(t_surf, color, (int(tx*self.render_size), int(ty*self.render_size)+ offset_y),4)
-            self.window.blit(t_surf,(0,0))
+            # 玩家1 球拍位置 (下方)
+            # 舊: self.env.player_x (歸一化), self.env.player_paddle_width (像素)
+            # 新: self.env.player1.x (歸一化), self.env.player1.paddle_width (像素)
+            p1_x_px = int(self.env.player1.x * self.env.render_size) # ⭐️嘗試使用新的
+            p1_paddle_width_px = self.env.player1.paddle_width       # ⭐️嘗試使用新的
+            p1_paddle_height_px = self.env.paddle_height_px
 
-        # 球旋轉
-        # 球/蟲 繪製與旋轉邏輯
-        current_display_image = self.ball_image # self.ball_image 已經被技能動態更新了
-
-        if hasattr(self.env, 'bug_skill_active') and self.env.bug_skill_active:
-            # 如果是蟲技能啟動狀態：
-            # 蟲可能不需要旋轉，或者有固定的朝向 (例如，永遠頭朝上)
-            # 假設蟲圖片本身就是正確朝向，所以直接使用，不進行額外旋轉
-            rotated_ball_or_bug = current_display_image
-            # 如果你的蟲圖片需要旋轉到特定角度 (例如，圖片是水平的，但希望它垂直向上)：
-            # angle_for_bug = 0 # 0 度通常是圖片的原始方向，向上可能是 0, 90, -90 等，取決於你的圖片
-            # rotated_ball_or_bug = pygame.transform.rotate(current_display_image, angle_for_bug)
-        else:
-            # 正常球的旋轉邏輯
-            self.ball_angle += self.env.spin * 12 # 根據 spin 值計算旋轉角度 (12是旋轉速度因子)
-            rotated_ball_or_bug = pygame.transform.rotate(current_display_image, self.ball_angle)
-
-        # 獲取圖片的矩形區域並設定中心點，然後繪製
-        rect = rotated_ball_or_bug.get_rect(center=(cx, cy))
-        self.window.blit(rotated_ball_or_bug, rect)
-
-        # === (A) 在畫板子 **之前**，先呼叫 skill.render() ===
-        # 讓slowmo的殘影 / shockwave 畫在底層
-        for skill in self.env.skills.values():
-            skill.render(self.window)
-
-        # === 再來畫玩家 & AI擋板 (在特效之上) ===
-        paddle_color= self.env.paddle_color or Style.PLAYER_COLOR
-        pygame.draw.rect(self.window, paddle_color,
-            (px- self.env.player_paddle_width//2,
-             offset_y+ self.render_size- self.env.paddle_height,
-             self.env.player_paddle_width,self.env.paddle_height),
-            border_radius=8
-        )
-        pygame.draw.rect(self.window, Style.AI_COLOR,
-            (ax- self.env.ai_paddle_width//2,
-             offset_y, self.env.ai_paddle_width,self.env.paddle_height)
-        )
-
-        # 血條
-        bar_w, bar_h, sp= 150,20,20
-        cur= pygame.time.get_ticks()
-
-        # AI
-        pygame.draw.rect(self.window, Style.AI_BAR_BG,
-            (self.render_size- bar_w- sp, sp, bar_w, bar_h)
-        )
-        ai_flash= (cur- self.env.last_ai_hit_time< self.env.freeze_duration)
-        ai_fill= (255,255,255) if (ai_flash and (cur//100%2==0)) else Style.AI_BAR_FILL
-        pygame.draw.rect(self.window, ai_fill, (
-            self.render_size- bar_w- sp,
-            sp,
-            bar_w*(self.env.ai_life/ self.env.ai_max_life), bar_h
-        ))
-
-        # Player
-        pygame.draw.rect(self.window, Style.PLAYER_BAR_BG,
-            (sp, self.render_size+ offset_y+ sp, bar_w, bar_h)
-        )
-        player_flash= (cur- self.env.last_player_hit_time< self.env.freeze_duration)
-        player_fill= (255,255,255) if (player_flash and (cur//100%2==0)) else Style.PLAYER_BAR_FILL
-        pygame.draw.rect(self.window, player_fill, (
-            sp, self.render_size+ offset_y+ sp,
-            bar_w*(self.env.player_life/ self.env.player_max_life), bar_h
-        ))
-
-        # 技能能量條(通用)
-        if active_skill:
-            slow_bar_w, slow_bar_h, spc= 100,10,20
-            slow_bar_x= self.render_size- slow_bar_w- spc
-            slow_bar_y= self.render_size+ offset_y+ self.env.paddle_height+ spc
-            pygame.draw.rect(self.window,(50,50,50),(slow_bar_x, slow_bar_y, slow_bar_w, slow_bar_h))
-
-            from game.skills.skill_config import SKILL_CONFIGS
-            skill_cfg= SKILL_CONFIGS[self.env.active_skill_name]
-            bar_color= skill_cfg.get("bar_color",(255,255,255))
-            ratio= active_skill.get_energy_ratio()
-            pygame.draw.rect(self.window, bar_color,
-                (slow_bar_x, slow_bar_y, slow_bar_w*ratio, slow_bar_h)
+            pygame.draw.rect(self.window, Style.PLAYER_COLOR, # 顏色之後也可能來自 PlayerState
+                (p1_x_px - p1_paddle_width_px // 2,
+                 offset_y + self.env.render_size - p1_paddle_height_px, # Y 座標在遊戲區底部
+                 p1_paddle_width_px, p1_paddle_height_px),
+                border_radius=8
             )
 
-            cd_sec= active_skill.get_cooldown_seconds()
-            if (not active_skill.is_active()) and cd_sec>0:
-                txt= f"{cd_sec:.1f}"
-                fnt= Style.get_font(14)
-                surf= fnt.render(txt, True, Style.TEXT_COLOR)
-                r= surf.get_rect(center=(slow_bar_x+ slow_bar_w/2, slow_bar_y+ slow_bar_h+15))
-                self.window.blit(surf, r)
+            # 對手 球拍位置 (上方)
+            # 舊: self.env.ai_x (歸一化), self.env.ai_paddle_width (像素)
+            # 新: self.env.opponent.x (歸一化), self.env.opponent.paddle_width (像素)
+            opponent_x_px = int(self.env.opponent.x * self.env.render_size) # ⭐️嘗試使用新的
+            opponent_paddle_width_px = self.env.opponent.paddle_width       # ⭐️嘗試使用新的
+            opponent_paddle_height_px = self.env.paddle_height_px
 
-            # 若能量滿, 顯示追跡特效
-            if active_skill.has_full_energy_effect():
-                glow_rect= pygame.Rect(slow_bar_x-2, slow_bar_y-2, slow_bar_w+4, slow_bar_h+4)
-                self.skill_glow_position= (self.skill_glow_position+8)%((glow_rect.width+ glow_rect.height)*2)
-                pos= self.skill_glow_position
+            pygame.draw.rect(self.window, Style.AI_COLOR, # 顏色之後也可能來自 PlayerState
+                (opponent_x_px - opponent_paddle_width_px // 2,
+                 offset_y, # Y 座標在遊戲區頂部 (UI之下)
+                 opponent_paddle_width_px, opponent_paddle_height_px),
+                 border_radius=8 # 假設對手也有圓角
+            )
 
-                if pos<= glow_rect.width:
-                    glow_pos= (glow_rect.x+ pos, glow_rect.y)
-                elif pos<= glow_rect.width+ glow_rect.height:
-                    glow_pos= (glow_rect.x+ glow_rect.width, glow_rect.y+ (pos- glow_rect.width))
-                elif pos<= glow_rect.width*2+ glow_rect.height:
-                    glow_pos= (
-                        glow_rect.x+ glow_rect.width- (pos- glow_rect.width- glow_rect.height),
-                        glow_rect.y+ glow_rect.height
-                    )
-                else:
-                    glow_pos= (
-                        glow_rect.x,
-                        glow_rect.y+ glow_rect.height- (pos- 2* glow_rect.width- glow_rect.height)
-                    )
 
-                self.skill_glow_trail.append(glow_pos)
-                if len(self.skill_glow_trail)> self.max_skill_glow_trail_length:
-                    self.skill_glow_trail.pop(0)
+            # 球的拖尾 (使用歸一化座標繪製，然後轉換)
+            for i, (tx_norm, ty_norm) in enumerate(self.env.trail):
+                fade = int(255 * (i + 1) / len(self.env.trail)) if len(self.env.trail) > 0 else 255
+                color = (*Style.BALL_COLOR[:3], fade) # 確保 BALL_COLOR 是 RGB 或 RGBA
+                
+                # 創建一個臨時的透明表面來繪製帶 alpha 的圓形
+                # 尺寸可以優化，不需要每次都創建全螢幕大小的 surface
+                trail_circle_radius_px = 4 # 拖尾點的半徑
+                temp_surf = pygame.Surface((trail_circle_radius_px * 2, trail_circle_radius_px * 2), pygame.SRCALPHA)
+                pygame.draw.circle(temp_surf, color, (trail_circle_radius_px, trail_circle_radius_px), trail_circle_radius_px)
+                
+                # 計算繪製位置
+                trail_x_px = int(tx_norm * self.env.render_size)
+                trail_y_px = int(ty_norm * self.env.render_size) + offset_y
+                self.window.blit(temp_surf, (trail_x_px - trail_circle_radius_px, trail_y_px - trail_circle_radius_px))
 
-                pygame.draw.rect(self.window, bar_color,
-                    (slow_bar_x, slow_bar_y, slow_bar_w*ratio, slow_bar_h)
-                )
-                if (not active_skill.is_active()) and cd_sec>0:
-                    txt= f"{cd_sec:.1f}"
-                    fnt= Style.get_font(14)
-                    surf= fnt.render(txt, True, Style.TEXT_COLOR)
-                    r= surf.get_rect(center=(slow_bar_x+ slow_bar_w/2, slow_bar_y+ slow_bar_h+15))
-                    self.window.blit(surf, r)
 
-                for i,pos2 in enumerate(self.skill_glow_trail):
-                    alpha= int(255*(i+1)/ len(self.skill_glow_trail))
-                    t_color= (255,255,255, alpha)
-                    t_s= pygame.Surface((self.render_size, self.render_size+200), pygame.SRCALPHA)
-                    pygame.draw.circle(t_s, t_color, pos2,4)
-                    self.window.blit(t_s,(0,0))
-            else:
-                self.skill_glow_position=0
-                self.skill_glow_trail.clear()
+            # 球的繪製和旋轉
+            current_display_image = self.ball_image # 之後技能系統可能會改變這個圖像
+            if not (hasattr(self.env, 'bug_skill_active') and self.env.bug_skill_active): # 假設 bug_skill_active 還是舊的判斷方式
+                self.ball_angle += self.env.spin * 12 # 根據 spin 值計算旋轉角度
+            rotated_ball_or_bug = pygame.transform.rotate(current_display_image, self.ball_angle)
+            rect = rotated_ball_or_bug.get_rect(center=(cx_px, cy_px))
+            self.window.blit(rotated_ball_or_bug, rect)
+
+
+            # 血條 (嘗試使用新的 PlayerState 結構)
+            bar_w_px, bar_h_px, spacing_px = 150, 20, 20 # 像素單位
+            current_time_ticks = pygame.time.get_ticks()
+
+            # 對手 (上方) 血條
+            pygame.draw.rect(self.window, Style.AI_BAR_BG, # 背景顏色
+                (self.window_width - bar_w_px - spacing_px, spacing_px, # X, Y 位置 (在上方UI區)
+                 bar_w_px, bar_h_px)
+            )
+            opp_flash = (current_time_ticks - self.env.opponent.last_hit_time < self.env.freeze_duration) # 假設 PlayerState 有 last_hit_time
+            opp_fill_color = (255,255,255) if (opp_flash and (current_time_ticks//100%2==0)) else Style.AI_BAR_FILL
+            opponent_life_ratio = self.env.opponent.lives / self.env.opponent.max_lives if self.env.opponent.max_lives > 0 else 0
+            pygame.draw.rect(self.window, opp_fill_color, (
+                self.window_width - bar_w_px - spacing_px, spacing_px,
+                bar_w_px * opponent_life_ratio, bar_h_px
+            ))
+
+            # 玩家1 (下方) 血條
+            player_bar_y_pos = self.window_height - offset_y + spacing_px # 在下方UI區的Y位置
+            pygame.draw.rect(self.window, Style.PLAYER_BAR_BG,
+                (spacing_px, player_bar_y_pos, bar_w_px, bar_h_px)
+            )
+            p1_flash = (current_time_ticks - self.env.player1.last_hit_time < self.env.freeze_duration)
+            p1_fill_color = (255,255,255) if (p1_flash and (current_time_ticks//100%2==0)) else Style.PLAYER_BAR_FILL
+            player1_life_ratio = self.env.player1.lives / self.env.player1.max_lives if self.env.player1.max_lives > 0 else 0
+            pygame.draw.rect(self.window, p1_fill_color, (
+                spacing_px, player_bar_y_pos,
+                bar_w_px * player1_life_ratio, bar_h_px
+            ))
+
+        except AttributeError as e:
+            if DEBUG_RENDERER: print(f"[Renderer.render] AttributeError during rendering: {e}. This likely means PongDuelEnv attributes need updating in Renderer.")
+            # 可以在這裡畫一個錯誤提示到螢幕上
+            font = pygame.font.Font(None, 24) # 使用 Pygame 預設字體
+            error_surf = font.render(f"Render Error: {e}", True, (255,0,0))
+            self.window.blit(error_surf, (10, self.window_height // 2))
+        except Exception as e:
+            if DEBUG_RENDERER: print(f"[Renderer.render] Generic error during rendering: {e}")
+            font = pygame.font.Font(None, 24)
+            error_surf = font.render(f"Unexpected Render Error", True, (255,0,0))
+            self.window.blit(error_surf, (10, self.window_height // 2))
+
+
+        # 技能相關的渲染 (階段二處理)
+        # ...
 
         pygame.display.flip()
-        self.clock.tick(60)
+        self.clock.tick(60) # 控制幀率
 
     def close(self):
-        pygame.quit()
+        if DEBUG_RENDERER: print("[Renderer.close] Closing Renderer and Pygame.")
