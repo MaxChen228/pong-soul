@@ -6,6 +6,8 @@ from game.settings import GameSettings
 from utils import resource_path
 from game.skills.skill_config import SKILL_CONFIGS
 
+# pong-soul/game/render.py
+# ... (imports) ...
 DEBUG_RENDERER = True
 
 class Renderer:
@@ -16,48 +18,43 @@ class Renderer:
         self.game_mode = game_mode
         self.logical_render_size = env.render_size 
         
-        # ⭐️ PvP 底部共享 UI 條的高度
-        self.pvp_shared_bottom_ui_height = 100 # 可以設為與 PvA 的 offset_y 類似的值
+        self.pvp_shared_bottom_ui_height = 100 
+        self.ui_offset_y_per_viewport = 0 # ⭐️ PvP 視口內遊戲區域頂部的偏移，設為0，因為遊戲內容直接從視口頂部開始
+                                         # 或者如果 PvP 視口內也有一個頂部UI條，則設為該UI條高度
 
         if self.game_mode == GameSettings.GameMode.PLAYER_VS_PLAYER:
             self.main_window_width = 1000 
-            # ⭐️ 總高度現在要考慮底部的共享 UI 條
-            self.viewport_render_height = 500 # 假設每個玩家的遊戲畫面高度為500 (可調整)
-                                            # 這個高度應該是 self.logical_render_size (遊戲邏輯高) + 上方UI (如果視口內有)
-                                            # 為了簡化，先假設視口高度就是遊戲邏輯高度
-            self.viewport_height = self.logical_render_size # 每個視口的高度 (僅遊戲內容區)
-                                                            # 或者 self.logical_render_size + self.ui_offset_y_in_viewport (如果視口內還有UI條)
-                                                            # 為了對齊，讓視口高度等於遊戲邏輯高度
-
+            self.viewport_height = self.logical_render_size # 假設視口高度就是邏輯遊戲區的高度
             self.main_window_height = self.viewport_height + self.pvp_shared_bottom_ui_height
             
             self.window = pygame.display.set_mode((self.main_window_width, self.main_window_height))
             pygame.display.set_caption("Pong Soul - PvP Mode (Horizontal Split)")
 
             self.viewport_width = self.main_window_width // 2 
-            
-            # 視口矩形定義更新
-            self.viewport1_rect = pygame.Rect(0, 0, self.viewport_width, self.viewport_height) # 左視口 (P1)
-            self.viewport2_rect = pygame.Rect(self.viewport_width, 0, self.viewport_width, self.viewport_height) # 右視口 (P2)
-            
-            # 底部共享UI區域
+            self.viewport1_rect = pygame.Rect(0, 0, self.viewport_width, self.viewport_height) 
+            self.viewport2_rect = pygame.Rect(self.viewport_width, 0, self.viewport_width, self.viewport_height)
             self.pvp_shared_bottom_ui_rect = pygame.Rect(0, self.viewport_height, self.main_window_width, self.pvp_shared_bottom_ui_height)
-
+            
+            self.offset_y = self.ui_offset_y_per_viewport # ⭐️ PvP 模式下，offset_y 指的是視口內的頂部偏移 (目前設為0)
+                                                         # 這樣 SlowMoSkill 計算 cy_screen_px 時，如果 cy_game_px 是視口內相對座標，則結果正確。
             if DEBUG_RENDERER:
                 print(f"[Renderer.__init__] PvP mode. Main window: {self.main_window_width}x{self.main_window_height}")
                 print(f"[Renderer.__init__] Viewport Height: {self.viewport_height}, Shared UI Height: {self.pvp_shared_bottom_ui_height}")
                 print(f"[Renderer.__init__] Viewport1 (P1/Left): {self.viewport1_rect}")
                 print(f"[Renderer.__init__] Viewport2 (P2/Right): {self.viewport2_rect}")
                 print(f"[Renderer.__init__] PvP Shared Bottom UI Rect: {self.pvp_shared_bottom_ui_rect}")
+                print(f"[Renderer.__init__] self.offset_y (for PvP viewport context) set to: {self.offset_y}")
         else: # PvA
-            self.ui_offset_y_single_view = 100 # PvA模式下的上下UI條高度
-            self.offset_y = self.ui_offset_y_single_view # 兼容 show_countdown
+            self.ui_offset_y_single_view = 100 
+            self.offset_y = self.ui_offset_y_single_view # ⭐️ PvA 模式下，offset_y 是頂部UI條高度
             self.main_window_width = self.logical_render_size
-            self.main_window_height = self.logical_render_size + 2 * self.ui_offset_y_single_view
+            self.main_window_height = self.logical_render_size + 2 * self.offset_y 
             self.window = pygame.display.set_mode((self.main_window_width, self.main_window_height))
             pygame.display.set_caption("Pong Soul - PvA Mode")
-            self.game_area_rect = pygame.Rect(0, self.ui_offset_y_single_view, self.logical_render_size, self.logical_render_size)
-            if DEBUG_RENDERER: print(f"[Renderer.__init__] PvA mode. Main window: {self.main_window_width}x{self.main_window_height}, Game Area: {self.game_area_rect}")
+            self.game_area_rect = pygame.Rect(0, self.offset_y, self.logical_render_size, self.logical_render_size)
+            if DEBUG_RENDERER: 
+                print(f"[Renderer.__init__] PvA mode. Main window: {self.main_window_width}x{self.main_window_height}, Game Area: {self.game_area_rect}")
+                print(f"[Renderer.__init__] self.offset_y (for PvA top UI) set to: {self.offset_y}")
 
         self.clock = pygame.time.Clock()
         # ... (球圖像加載等保持不變) ...
@@ -74,6 +71,8 @@ class Renderer:
         self.ball_angle = 0 
         self.skill_glow_position = 0; self.skill_glow_trail = []; self.max_skill_glow_trail_length = 15
         if DEBUG_RENDERER: print("[Renderer.__init__] Renderer initialization complete.")
+    
+    # ... (render 方法和其他輔助方法) ...
 
 
     def _draw_walls(self, target_surface, game_area_width, game_area_height, offset_x=0, offset_y=0, color=(100,100,100), thickness=2):
