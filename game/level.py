@@ -3,8 +3,9 @@ import yaml
 from utils import resource_path # <--- 加入這行
 
 class LevelManager:
-    def __init__(self, models_folder="models"):
-        self.models_folder = models_folder
+    def __init__(self, config_manager, models_folder="models"): # <--- 新增 config_manager 參數
+        self.config_manager = config_manager # <--- 儲存 config_manager 實例
+        self.models_folder = models_folder # models_folder 仍然有用，用於列出 .pth 檔案和推斷 .yaml 檔名
         self.model_files = sorted([
             f for f in os.listdir(models_folder) if f.endswith(".pth")
         ])
@@ -16,26 +17,22 @@ class LevelManager:
         return None
 
     def get_current_config(self):
-        if not self.model_files or self.current_level >= len(self.model_files): # 增加邊界檢查
-            print(f"Warning: No model files available or current_level out of bounds.")
-            return {}
+        if not self.model_files or self.current_level >= len(self.model_files):
+            # 使用 ConfigManager 的除錯輸出風格 (如果需要)
+            # print(f"[LevelManager] Warning: No model files available or current_level out of bounds.")
+            return {} # 返回空字典表示沒有有效的設定
 
         model_filename = self.model_files[self.current_level]
-        yaml_filename = model_filename.replace(".pth", ".yaml")
+        yaml_filename_only = model_filename.replace(".pth", ".yaml") # 只取檔案名稱
 
-        # self.models_folder 已經是 resource_path("models") 的結果，是絕對路徑
-        absolute_yaml_path = os.path.join(self.models_folder, yaml_filename)
+        # 使用 ConfigManager 獲取設定
+        # ConfigManager 的 get_level_config 會處理路徑和快取
+        config_data = self.config_manager.get_level_config(yaml_filename_only)
 
-        if os.path.exists(absolute_yaml_path):
-            try:
-                with open(absolute_yaml_path, 'r') as f:
-                    return yaml.safe_load(f)
-            except Exception as e:
-                print(f"Error loading YAML file {absolute_yaml_path}: {e}")
-                return {} # 或其他錯誤處理
-        else:
-            print(f"Warning: Config file not found at {absolute_yaml_path}")
-        return {}
+        if config_data is None: # 如果 ConfigManager 返回 None (表示讀取失敗或檔案不存在)
+            # print(f"[LevelManager] Warning: ConfigManager failed to load config for {yaml_filename_only}")
+            return {} # 確保返回字典
+        return config_data
 
     def advance_level(self):
         self.current_level += 1

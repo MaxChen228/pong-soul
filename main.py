@@ -10,6 +10,7 @@ from game.theme import Style
 from game.settings import GameSettings # GameSettings 也需要被 menu_states 訪問
 from game.sound import SoundManager
 from utils import resource_path
+from game.config_manager import ConfigManager # <--- 新增這一行
 
 # 引入狀態
 from game.states.base_state import BaseState
@@ -30,6 +31,9 @@ class GameApp:
         # ... (init 中的螢幕設定等不變) ...
         pygame.init()
         pygame.font.init()
+
+        self.config_manager = ConfigManager() # <--- 新增這一行：創建 ConfigManager 實例
+        if DEBUG_GAME_APP: print(f"[GameApp] ConfigManager instance created.")
 
         self.sound_manager = SoundManager()
         self.clock = pygame.time.Clock()

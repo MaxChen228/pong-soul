@@ -1,0 +1,29 @@
+# config/global_settings.yaml
+
+# === 遊戲模式定義 ===
+# GameMode: # 類別定義不適合放在 YAML，這部分保留在 GameSettings.py 中
+#   PLAYER_VS_AI: "PVA"
+#   PLAYER_VS_PLAYER: "PVP"
+
+# === 音量設定 ===
+audio:
+  background_music_volume: 0.2
+  click_sound_volume: 0.7
+  countdown_sound_volume: 0.7
+  slowmo_sound_volume: 1.0 # 這個未來也可以考慮移到技能設定中
+
+# === 其他全域參數 ===
+gameplay:
+  freeze_duration_ms: 500
+  countdown_seconds: 3
+
+# === 主題設定 ===
+theme:
+  active_theme_name: "Chinese Traditional" # 您目前活躍的主題
+
+# 更多您可以考慮加入的參數:
+# screen:
+#   default_width: 800 # 邏輯寬度 (如果選單等使用固定邏輯尺寸)
+#   default_height: 600 # 邏輯高度
+# performance:
+#   fps_limit: 60

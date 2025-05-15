@@ -92,10 +92,12 @@ class GameplayState(BaseState):
         ball_radius_for_env = 10
         player1_env_config = {}
         opponent_env_config = {}
-        self.ai_agent = None 
+        self.ai_agent = None
 
         if self.current_game_mode == GameSettings.GameMode.PLAYER_VS_AI:
-            levels = LevelManager(models_folder=resource_path("models"))
+            # 使用 game_app 傳過來的 config_manager 實例來初始化 LevelManager
+            levels = LevelManager(config_manager=self.game_app.config_manager,
+                                  models_folder=resource_path("models"))
             
             # ⭐️ 使用從 persistent_data 傳來的 selected_level_index
             if selected_level_index is not None and 0 <= selected_level_index < len(levels.model_files):

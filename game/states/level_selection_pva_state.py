@@ -11,7 +11,9 @@ DEBUG_LEVEL_SELECT_STATE = True
 class LevelSelectionPvaState(BaseState):
     def __init__(self, game_app):
         super().__init__(game_app)
-        self.level_manager = LevelManager(models_folder=resource_path("models"))
+        # 使用 game_app 傳過來的 config_manager 實例來初始化 LevelManager
+        self.level_manager = LevelManager(config_manager=self.game_app.config_manager,
+                                          models_folder=resource_path("models"))
         self.level_names = [] # 將在 on_enter 中填充
         self.display_level_names = [] # 包含索引的顯示名稱
         self.selected_index = 0
