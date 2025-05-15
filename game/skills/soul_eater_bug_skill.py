@@ -193,202 +193,227 @@ class SoulEaterBugSkill(Skill):
         
         if DEBUG_BUG_SKILL: print(f"[SKILL_DEBUG][SoulEaterBugSkill] ({self.owner.identifier}) New bug X target: {self.current_target_x_norm:.2f}")
 
+    def _handle_rest_state(self):
+        """
+        管理蟲子的休息狀態，包括計時器和音效。
+        返回 True 如果蟲子當前正在休息，否則 False。
+        """
+        if not self.is_resting:
+            return False
 
-    def update(self): # ⭐️ 此 update 方法現在全權負責球（蟲）的移動和碰撞邏輯
-        if not self.active:
-            return
+        self.rest_timer_frames -= 1
+        if self.crawl_channel and self.was_crawl_sound_playing:
+            self.crawl_channel.pause()
+            self.was_crawl_sound_playing = False 
 
-        current_time = pygame.time.get_ticks()
-        if (current_time - self.activated_time) >= self.duration_ms:
-            if DEBUG_BUG_SKILL: print(f"[SKILL_DEBUG][SoulEaterBugSkill] ({self.owner.identifier}) Duration expired.")
-            self.deactivate(hit_paddle=False, scored=False) # 技能時間到
-            return
-
-        delta_x_norm, delta_y_norm = 0.0, 0.0 # 歸一化的位移量
-
-        # --- 休息/猶豫邏輯 ---
-        if self.is_resting:
-            self.rest_timer_frames -= 1
-            if self.crawl_channel and self.was_crawl_sound_playing:
-                self.crawl_channel.pause()
-                self.was_crawl_sound_playing = False 
-
-            if self.rest_timer_frames <= 0:
-                self.is_resting = False
-                self._update_target_x_norm() # 休息結束，強制選擇新方向
-                if self.crawl_channel and not self.was_crawl_sound_playing and self.sound_crawl_sfx:
-                    try:
-                        self.crawl_channel.unpause()
-                        self.was_crawl_sound_playing = True
-                    except Exception as e:
-                        if DEBUG_BUG_SKILL: print(f"[SKILL_DEBUG][SoulEaterBugSkill] Error unpausing crawl sound: {e}. Re-playing.")
-                        self.crawl_channel = self.sound_crawl_sfx.play(-1) # 嘗試重新播放
-                        self.was_crawl_sound_playing = True
-                if DEBUG_BUG_SKILL: print(f"[SKILL_DEBUG][SoulEaterBugSkill] ({self.owner.identifier}) Bug finished resting.")
-            else: # 仍在休息中
-                base_delta_y_norm = (-self.base_y_speed if self.target_player_state == self.env.opponent else self.base_y_speed) * self.y_movement_dampening_during_rest
-                random_y_offset_norm = random.uniform(-self.small_drift_during_rest_factor, self.small_drift_during_rest_factor)
-                delta_y_norm = base_delta_y_norm + random_y_offset_norm
-                
-                target_dx_norm = (self.current_target_x_norm - self.env.ball_x) * self.goal_seeking_factor * self.x_movement_dampening_during_rest
-                random_x_offset_norm = random.uniform(-self.small_drift_during_rest_factor, self.small_drift_during_rest_factor)
-                delta_x_norm = target_dx_norm + random_x_offset_norm
-        else: # 非休息狀態 (正常移動)
+        if self.rest_timer_frames <= 0:
+            self.is_resting = False
+            self._update_target_x_norm() # 休息結束，強制選擇新方向
             if self.crawl_channel and not self.was_crawl_sound_playing and self.sound_crawl_sfx:
                 try:
-                    self.crawl_channel.unpause(); self.was_crawl_sound_playing = True
-                except Exception as e:
+                    self.crawl_channel.unpause()
+                    self.was_crawl_sound_playing = True
+                except Exception as e: # Pygame sound unpause might fail if channel was stopped
                     if DEBUG_BUG_SKILL: print(f"[SKILL_DEBUG][SoulEaterBugSkill] Error unpausing crawl sound: {e}. Re-playing.")
-                    self.crawl_channel = self.sound_crawl_sfx.play(-1); self.was_crawl_sound_playing = True
-
-            # Y軸移動方向取決於目標是 P1 還是 Opponent
-            # 如果目標是 Opponent (在上方)，蟲子 Y 軸應主要向上移動 (負的 delta_y)
-            # 如果目標是 P1 (在下方)，蟲子 Y 軸應主要向下移動 (正的 delta_y)
-            y_direction_sign = -1.0 if self.target_player_state == self.env.opponent else 1.0
-            base_delta_y_norm = y_direction_sign * self.base_y_speed
-            random_y_offset_norm = random.uniform(-self.y_random_magnitude, self.y_random_magnitude)
-            delta_y_norm = base_delta_y_norm + random_y_offset_norm
-
-            # X軸目標點更新
-            self.frames_since_target_update += 1
-            if self.frames_since_target_update >= self.target_update_interval_frames:
-                self.frames_since_target_update = 0
-                self._update_target_x_norm()
-                if self.can_rest and random.random() < self.rest_chance_after_target_update:
-                    self.is_resting = True
-                    self.rest_timer_frames = random.randint(self.min_rest_duration_frames, self.max_rest_duration_frames)
-                    if DEBUG_BUG_SKILL: print(f"[SKILL_DEBUG][SoulEaterBugSkill] ({self.owner.identifier}) Bug started resting for {self.rest_timer_frames} frames.")
-            
-            if not self.is_resting: # 再次檢查，因為上面可能剛進入休息
-                # X軸移動 (朝向目標 + 隨機探索 + 避障)
-                target_dx_norm = (self.current_target_x_norm - self.env.ball_x) * self.goal_seeking_factor
-                delta_x_norm += target_dx_norm
-
-                random_x_offset_norm = random.choice([-1, 0, 1]) * self.x_random_walk_speed * random.uniform(0.3, 1.0)
-                delta_x_norm += random_x_offset_norm
-                
-                # 避開目標球拍的邏輯
-                # 蟲子的視覺半徑 (歸一化)
-                bug_visual_radius_norm = (self.bug_image_transformed.get_width() / 2) / self.env.render_size
-                
-                # 目標球拍的屬性
-                target_paddle_x_norm = self.target_player_state.x
-                target_paddle_half_w_norm = self.target_player_state.paddle_width_normalized / 2
-                
-                # 避障的有效球拍寬度 (稍微放大一點，給蟲子留出空間)
-                effective_paddle_width_for_dodge_norm = target_paddle_half_w_norm + bug_visual_radius_norm * 0.75 
-                
-                distance_to_target_paddle_x_norm = self.env.ball_x - target_paddle_x_norm
-                
-                # 判斷蟲子是否在目標球拍的 X 軸威脅範圍內
-                if abs(distance_to_target_paddle_x_norm) < effective_paddle_width_for_dodge_norm:
-                    # 判斷蟲子是否在目標球拍的 Y 軸威脅區域
-                    # 對於上方球拍 (Opponent): Y 座標範圍是 [0, paddle_height_norm + 一些緩衝]
-                    # 對於下方球拍 (Player1): Y 座標範圍是 [1 - paddle_height_norm - 一些緩衝, 1]
-                    is_near_target_paddle_y = False
-                    target_paddle_surface_y_norm = 0.0
-                    if self.target_player_state == self.env.opponent: # 目標在上方
-                        target_paddle_surface_y_norm = self.env.paddle_height_normalized
-                        # 蟲子的 Y 底部接近或超過球拍上表面，且蟲子 Y 頂部未完全超過球拍下表面 (假設蟲子從上往下看)
-                        if (self.env.ball_y + bug_visual_radius_norm > target_paddle_surface_y_norm - bug_visual_radius_norm * 2) and \
-                           (self.env.ball_y - bug_visual_radius_norm < target_paddle_surface_y_norm + self.env.paddle_height_normalized + bug_visual_radius_norm):
-                            is_near_target_paddle_y = True
-                    else: # 目標在下方 (Player1)
-                        target_paddle_surface_y_norm = 1.0 - self.env.paddle_height_normalized
-                        if (self.env.ball_y - bug_visual_radius_norm < target_paddle_surface_y_norm + bug_visual_radius_norm * 2) and \
-                           (self.env.ball_y + bug_visual_radius_norm > target_paddle_surface_y_norm - self.env.paddle_height_normalized - bug_visual_radius_norm):
-                            is_near_target_paddle_y = True
-                            
-                    if is_near_target_paddle_y:
-                        dodge_direction = 1 if distance_to_target_paddle_x_norm >= 0 else -1 # 往遠離球拍中心的方向躲
-                        if distance_to_target_paddle_x_norm == 0: dodge_direction = random.choice([-1,1]) # 正好在中間就隨機選一邊
-                        delta_x_dodge_norm = dodge_direction * self.dodge_factor
-                        delta_x_norm += delta_x_dodge_norm
-                        if DEBUG_BUG_SKILL: print(f"[SKILL_DEBUG][SoulEaterBugSkill] ({self.owner.identifier}) Dodging target paddle. Dodge_X: {delta_x_dodge_norm:.3f}")
+                    self.crawl_channel = self.sound_crawl_sfx.play(-1) 
+                    self.was_crawl_sound_playing = True
+            if DEBUG_BUG_SKILL: print(f"[SKILL_DEBUG][SoulEaterBugSkill] ({self.owner.identifier}) Bug finished resting.")
+            return False # 休息結束
         
-        # 應用計算出的位移 (乘以時間尺度)
-        self.env.ball_y += delta_y_norm * self.env.time_scale
+        return True # 仍在休息
+
+    def _calculate_movement_deltas_during_rest(self):
+        """計算蟲子在休息時的微小漂移。"""
+        base_delta_y_norm = (-self.base_y_speed if self.target_player_state == self.env.opponent else self.base_y_speed) * self.y_movement_dampening_during_rest
+        random_y_offset_norm = random.uniform(-self.small_drift_during_rest_factor, self.small_drift_during_rest_factor)
+        delta_y_norm = base_delta_y_norm + random_y_offset_norm
+        
+        target_dx_norm = (self.current_target_x_norm - self.env.ball_x) * self.goal_seeking_factor * self.x_movement_dampening_during_rest
+        random_x_offset_norm = random.uniform(-self.small_drift_during_rest_factor, self.small_drift_during_rest_factor)
+        delta_x_norm = target_dx_norm + random_x_offset_norm
+        return delta_x_norm, delta_y_norm
+
+    def _decide_to_rest_or_update_x_target(self):
+        """更新X軸目標點，並根據機率決定是否進入休息狀態。"""
+        self.frames_since_target_update += 1
+        if self.frames_since_target_update >= self.target_update_interval_frames:
+            self.frames_since_target_update = 0
+            self._update_target_x_norm() # 更新 X 軸目標
+            if self.can_rest and random.random() < self.rest_chance_after_target_update:
+                self.is_resting = True
+                self.rest_timer_frames = random.randint(self.min_rest_duration_frames, self.max_rest_duration_frames)
+                if DEBUG_BUG_SKILL: print(f"[SKILL_DEBUG][SoulEaterBugSkill] ({self.owner.identifier}) Bug started resting for {self.rest_timer_frames} frames.")
+
+    def _calculate_movement_deltas_active(self):
+        """計算蟲子在非休息狀態下的主要移動增量 (X 和 Y)。"""
+        # Y軸移動
+        y_direction_sign = -1.0 if self.target_player_state == self.env.opponent else 1.0
+        base_delta_y_norm = y_direction_sign * self.base_y_speed
+        random_y_offset_norm = random.uniform(-self.y_random_magnitude, self.y_random_magnitude)
+        delta_y_norm = base_delta_y_norm + random_y_offset_norm
+
+        # X軸移動 (朝向目標 + 隨機探索)
+        delta_x_norm = (self.current_target_x_norm - self.env.ball_x) * self.goal_seeking_factor
+        random_x_offset_norm = random.choice([-1, 0, 1]) * self.x_random_walk_speed * random.uniform(0.3, 1.0)
+        delta_x_norm += random_x_offset_norm
+        
+        return delta_x_norm, delta_y_norm
+
+    def _apply_dodge_and_avoidance(self, delta_x_norm):
+        """應用躲避目標球拍的邏輯，調整 delta_x_norm。"""
+        bug_visual_radius_norm = (self.bug_image_transformed.get_width() / 2) / self.env.render_size
+        target_paddle = self.target_player_state
+        target_paddle_x_norm = target_paddle.x
+        target_paddle_half_w_norm = target_paddle.paddle_width_normalized / 2
+        effective_paddle_width_for_dodge_norm = target_paddle_half_w_norm + bug_visual_radius_norm * 0.75 
+        distance_to_target_paddle_x_norm = self.env.ball_x - target_paddle_x_norm
+        
+        is_near_target_paddle_y = False
+        if target_paddle == self.env.opponent: # 目標在上方
+            target_paddle_surface_y_norm = self.env.paddle_height_normalized
+            if (self.env.ball_y + bug_visual_radius_norm > target_paddle_surface_y_norm - bug_visual_radius_norm * 2) and \
+               (self.env.ball_y - bug_visual_radius_norm < target_paddle_surface_y_norm + self.env.paddle_height_normalized + bug_visual_radius_norm):
+                is_near_target_paddle_y = True
+        else: # 目標在下方 (Player1)
+            target_paddle_surface_y_norm = 1.0 - self.env.paddle_height_normalized
+            if (self.env.ball_y - bug_visual_radius_norm < target_paddle_surface_y_norm + bug_visual_radius_norm * 2) and \
+               (self.env.ball_y + bug_visual_radius_norm > target_paddle_surface_y_norm - self.env.paddle_height_normalized - bug_visual_radius_norm):
+                is_near_target_paddle_y = True
+        
+        if abs(distance_to_target_paddle_x_norm) < effective_paddle_width_for_dodge_norm and is_near_target_paddle_y:
+            dodge_direction = 1 if distance_to_target_paddle_x_norm >= 0 else -1 
+            if distance_to_target_paddle_x_norm == 0: dodge_direction = random.choice([-1,1])
+            delta_x_dodge_norm = dodge_direction * self.dodge_factor
+            delta_x_norm += delta_x_dodge_norm
+            if DEBUG_BUG_SKILL: print(f"[SKILL_DEBUG][SoulEaterBugSkill] ({self.owner.identifier}) Dodging target paddle. Dodge_X: {delta_x_dodge_norm:.3f}")
+        
+        return delta_x_norm
+
+    def _apply_movement_and_constrain_bounds(self, delta_x_norm, delta_y_norm):
+        """應用計算出的位移並限制蟲子在場地內的活動範圍。"""
+        self.env.ball_y += delta_y_norm * self.env.time_scale # 蟲子也受 time_scale 影響
         self.env.ball_x += delta_x_norm * self.env.time_scale
         
-        # 限制蟲子在場地內的活動範圍 (Y軸稍微留邊，避免視覺上完全貼邊)
         self.env.ball_y = np.clip(self.env.ball_y, 0.02, 0.98) 
-        self.env.ball_x = np.clip(self.env.ball_x, 0.0, 1.0)
+        self.env.ball_x = np.clip(self.env.ball_x, 0.0, 1.0) # X軸可以貼邊
 
-        # --- 碰撞檢測與得分邏輯 (由蟲技能自己處理) ---
-        # 蟲子的視覺半徑 (歸一化)
+    def _check_bug_scored(self):
+        """檢查蟲子是否到達目標的得分線。如果是，處理得分並返回 True。"""
         bug_visual_radius_norm_collision = (self.bug_image_transformed.get_width() / 2) / self.env.render_size
-
-        # 1. 檢查蟲子是否到達目標的得分線
         target_goal_line_y_norm = 0.0
         scored_condition = False
-        if self.target_player_state == self.env.opponent: # 目標在上方，得分線在 Y=0 附近
-            target_goal_line_y_norm = self.env.paddle_height_normalized / 2 # 大致在球拍厚度一半的位置算得分
+
+        if self.target_player_state == self.env.opponent: # 目標在上方
+            target_goal_line_y_norm = self.env.paddle_height_normalized / 2 
             if self.env.ball_y - bug_visual_radius_norm_collision <= target_goal_line_y_norm:
                 scored_condition = True
-        else: # 目標在下方 (Player1)，得分線在 Y=1 附近
+        else: # 目標在下方 (Player1)
             target_goal_line_y_norm = 1.0 - (self.env.paddle_height_normalized / 2)
             if self.env.ball_y + bug_visual_radius_norm_collision >= target_goal_line_y_norm:
                 scored_condition = True
         
         if scored_condition:
             if DEBUG_BUG_SKILL: print(f"[SKILL_DEBUG][SoulEaterBugSkill] ({self.owner.identifier}) Bug scored against {self.target_player_state.identifier}!")
-            self.target_player_state.lives -= 1 # 扣除目標生命值
-            self.target_player_state.last_hit_time = current_time # 用於目標血條閃爍
-            self.env.freeze_timer = current_time # 觸發得分後的凍結
-            self.env.round_concluded_by_skill = True # ⭐️ 設定回合結束標誌
-            # ⭐️ 準備 info字典，用於 Env 的 step 返回
-            self.env.current_round_info = {'scorer': self.owner.identifier} # 技能擁有者得分
-            self.deactivate(hit_paddle=False, scored=True) # 停用技能
-            return # 得分後，本幀的後續邏輯不再執行
+            self.target_player_state.lives -= 1 
+            self.target_player_state.last_hit_time = pygame.time.get_ticks()
+            self.env.freeze_timer = pygame.time.get_ticks() 
+            self.env.round_concluded_by_skill = True 
+            self.env.current_round_info = {'scorer': self.owner.identifier, 'reason': 'bug_scored'} 
+            self.deactivate(hit_paddle=False, scored=True) 
+            return True # 得分，回合結束
+        return False
 
-        # 2. 檢查蟲子是否碰到目標的球拍
-        target_paddle_x_norm = self.target_player_state.x
-        target_paddle_half_w_norm = self.target_player_state.paddle_width_normalized / 2
-        target_paddle_y_surface_contact_min_norm = 0.0 # 球拍接觸面的Y座標範圍
+    def _check_bug_hit_paddle(self):
+        """檢查蟲子是否碰到目標的球拍。如果是，處理碰撞並返回 True。"""
+        bug_visual_radius_norm_collision = (self.bug_image_transformed.get_width() / 2) / self.env.render_size
+        target_paddle = self.target_player_state
+        target_paddle_x_norm = target_paddle.x
+        target_paddle_half_w_norm = target_paddle.paddle_width_normalized / 2
+        
+        target_paddle_y_surface_contact_min_norm = 0.0
         target_paddle_y_surface_contact_max_norm = 0.0
 
-        if self.target_player_state == self.env.opponent: # 目標在上方
-            # 球拍的Y軸範圍是 [0, paddle_height_normalized]
-            # 蟲子Y中心接觸球拍的範圍大致是 [ball_radius, paddle_height - ball_radius]
-            # 簡化：只要蟲子的Y區間與球拍的Y區間有重疊
-            target_paddle_y_surface_contact_min_norm = 0 # 球拍頂部
-            target_paddle_y_surface_contact_max_norm = self.env.paddle_height_normalized # 球拍底部
+        if target_paddle == self.env.opponent: # 目標在上方
+            target_paddle_y_surface_contact_min_norm = 0 
+            target_paddle_y_surface_contact_max_norm = self.env.paddle_height_normalized 
         else: # 目標在下方
             target_paddle_y_surface_contact_min_norm = 1.0 - self.env.paddle_height_normalized
             target_paddle_y_surface_contact_max_norm = 1.0
             
-        # 蟲子的Y軸佔據範圍
         bug_y_min_norm = self.env.ball_y - bug_visual_radius_norm_collision
         bug_y_max_norm = self.env.ball_y + bug_visual_radius_norm_collision
-        
-        # 蟲子的X軸佔據範圍
         bug_x_min_norm = self.env.ball_x - bug_visual_radius_norm_collision
         bug_x_max_norm = self.env.ball_x + bug_visual_radius_norm_collision
-
-        # 目標球拍的X軸佔據範圍
         target_paddle_x_min_norm = target_paddle_x_norm - target_paddle_half_w_norm
         target_paddle_x_max_norm = target_paddle_x_norm + target_paddle_half_w_norm
 
-        # Y軸重疊判斷
         y_overlap = (bug_y_max_norm >= target_paddle_y_surface_contact_min_norm and \
                      bug_y_min_norm <= target_paddle_y_surface_contact_max_norm)
-        # X軸重疊判斷
         x_overlap = (bug_x_max_norm >= target_paddle_x_min_norm and \
                      bug_x_min_norm <= target_paddle_x_max_norm)
 
         if x_overlap and y_overlap:
-            if DEBUG_BUG_SKILL: print(f"[SKILL_DEBUG][SoulEaterBugSkill] ({self.owner.identifier}) Bug hit {self.target_player_state.identifier}'s paddle!")
-            self.env.freeze_timer = current_time # 觸發短暫凍結
-            self.env.round_concluded_by_skill = True # ⭐️ 設定回合結束標誌
-            # ⭐️ 蟲子被拍到，沒有人得分
+            if DEBUG_BUG_SKILL: print(f"[SKILL_DEBUG][SoulEaterBugSkill] ({self.owner.identifier}) Bug hit {target_paddle.identifier}'s paddle!")
+            self.env.freeze_timer = pygame.time.get_ticks() 
+            self.env.round_concluded_by_skill = True 
             self.env.current_round_info = {'scorer': None, 'reason': 'bug_hit_paddle'} 
-            self.deactivate(hit_paddle=True, scored=False) # 停用技能
-            return # 碰撞後，本幀的後續邏輯不再執行
+            self.deactivate(hit_paddle=True, scored=False) 
+            return True # 碰撞，回合結束
+        return False
 
-        # 更新蟲子（球）的拖尾，因為它在移動
+    def _update_trail(self):
+        """更新蟲子（球）的拖尾。"""
         self.env.trail.append((self.env.ball_x, self.env.ball_y))
-        if len(self.env.trail) > self.env.max_trail_length:
+        if len(self.env.trail) > self.env.max_trail_length: # self.env.max_trail_length 來自 PongDuelEnv
              self.env.trail.pop(0)
+
+    def update(self):
+        if not self.active:
+            return
+
+        current_time = pygame.time.get_ticks()
+        if (current_time - self.activated_time) >= self.duration_ms:
+            if DEBUG_BUG_SKILL: print(f"[SKILL_DEBUG][SoulEaterBugSkill] ({self.owner.identifier}) Duration expired.")
+            self.deactivate(hit_paddle=False, scored=False) # 技能時間到，未得分也未擊中
+            return
+
+        delta_x_norm, delta_y_norm = 0.0, 0.0
+
+        # 1. 處理休息狀態
+        if self._handle_rest_state(): # 如果正在休息
+            delta_x_norm, delta_y_norm = self._calculate_movement_deltas_during_rest()
+        else: # 非休息狀態 (正常移動)
+            # 確保爬行音效播放 (如果之前因休息暫停)
+            if self.crawl_channel and not self.was_crawl_sound_playing and self.sound_crawl_sfx:
+                try:
+                    self.crawl_channel.unpause()
+                    self.was_crawl_sound_playing = True
+                except Exception as e:
+                    if DEBUG_BUG_SKILL: print(f"[SKILL_DEBUG][SoulEaterBugSkill] Error unpausing crawl sound: {e}. Re-playing.")
+                    self.crawl_channel = self.sound_crawl_sfx.play(-1)
+                    self.was_crawl_sound_playing = True
+            
+            # 2. 更新 X 軸目標點並可能決定進入休息
+            self._decide_to_rest_or_update_x_target()
+
+            if self.is_resting: # 如果剛好在上面進入了休息狀態
+                delta_x_norm, delta_y_norm = self._calculate_movement_deltas_during_rest()
+            else: # 仍然是非休息狀態，計算主要移動
+                delta_x_norm, delta_y_norm = self._calculate_movement_deltas_active()
+                # 3. 應用躲避邏輯
+                delta_x_norm = self._apply_dodge_and_avoidance(delta_x_norm)
+        
+        # 4. 應用計算出的位移並限制邊界
+        self._apply_movement_and_constrain_bounds(delta_x_norm, delta_y_norm)
+        
+        # 5. 碰撞檢測與得分邏輯
+        if self._check_bug_scored(): # 如果得分，技能已在內部停用，回合結束
+            return 
+        if self._check_bug_hit_paddle(): # 如果擊中球拍，技能已在內部停用，回合結束
+            return
+            
+        # 6. 更新拖尾 (如果回合未因碰撞或得分而結束)
+        self._update_trail()
 
 
     def deactivate(self, hit_paddle=False, scored=False):
