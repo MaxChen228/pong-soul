@@ -21,8 +21,9 @@ class GameFlowStateName(Enum):
     SELECT_GAME_MODE = 1
     SELECT_INPUT_PVA = 2
     SELECT_SKILL_PVA = 3
-    RUN_PVP_SKILL_SELECTION = 4
-    GAMEPLAY = 5
+    SELECT_LEVEL_PVA = 4 # <-- 新增狀態
+    RUN_PVP_SKILL_SELECTION = 5 # <-- 原來是 4
+    GAMEPLAY = 6                # <-- 原來是 5
 
 class GameApp:
     def __init__(self):
@@ -90,13 +91,15 @@ class GameApp:
         from game.states.select_game_mode_state import SelectGameModeState
         from game.states.select_input_pva_state import SelectInputPvaState
         from game.states.select_skill_pva_state import SelectSkillPvaState
+        from game.states.level_selection_pva_state import LevelSelectionPvaState # <-- 導入新狀態
         from game.states.run_pvp_skill_selection_state import RunPvpSkillSelectionState
-        
+
         from game.states.gameplay_state import GameplayState
-        
+
         self.states[GameFlowStateName.SELECT_GAME_MODE] = SelectGameModeState(self)
         self.states[GameFlowStateName.SELECT_INPUT_PVA] = SelectInputPvaState(self)
         self.states[GameFlowStateName.SELECT_SKILL_PVA] = SelectSkillPvaState(self)
+        self.states[GameFlowStateName.SELECT_LEVEL_PVA] = LevelSelectionPvaState(self) # <-- 註冊新狀態
         self.states[GameFlowStateName.RUN_PVP_SKILL_SELECTION] = RunPvpSkillSelectionState(self)
         self.states[GameFlowStateName.GAMEPLAY] = GameplayState(self)
 
@@ -107,7 +110,8 @@ class GameApp:
 
         if state_name_enum in [GameFlowStateName.SELECT_GAME_MODE,
                                       GameFlowStateName.SELECT_INPUT_PVA,
-                                      GameFlowStateName.SELECT_SKILL_PVA]:
+                                      GameFlowStateName.SELECT_SKILL_PVA,
+                                      GameFlowStateName.SELECT_LEVEL_PVA]: # <-- 添加新狀態
             logical_w, logical_h = self.LOGICAL_MENU_WIDTH, self.LOGICAL_MENU_HEIGHT
         elif state_name_enum == GameFlowStateName.RUN_PVP_SKILL_SELECTION:
             logical_w, logical_h = self.LOGICAL_PVP_SKILL_MENU_WIDTH, self.LOGICAL_PVP_SKILL_MENU_HEIGHT

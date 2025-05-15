@@ -43,10 +43,11 @@ class GameplayState(BaseState):
         self.game_over_banner_shown = False # 避免重複顯示遊戲結束橫幅
 
     def on_enter(self, previous_state_data=None):
-        super().on_enter(previous_state_data)
-        if DEBUG_GAMEPLAY_STATE: print(f"[State:Gameplay] Entered. Data from prev state: {previous_state_data}")
+        super().on_enter(previous_state_data) # 這會將 previous_state_data 更新到 self.persistent_data
+        if DEBUG_GAMEPLAY_STATE: print(f"[State:Gameplay] Entered. Data from prev state (self.persistent_data): {self.persistent_data}")
 
-        # 1. 從 persistent_data (由前一狀態傳入) 或 game_app.shared_game_data (備用) 獲取遊戲設定
+        # 1. 從 self.persistent_data (由前一狀態傳入) 獲取遊戲設定
+        #    或者從 game_app.shared_game_data (作為備用，但不推薦依賴此處的關卡索引)
         self.current_game_mode = self.persistent_data.get("game_mode", 
                                                           self.game_app.shared_game_data.get("selected_game_mode", GameSettings.GameMode.PLAYER_VS_AI))
         self.current_input_mode = self.persistent_data.get("input_mode", 
@@ -54,20 +55,37 @@ class GameplayState(BaseState):
         self.p1_skill_code = self.persistent_data.get("p1_skill", 
                                                   self.game_app.shared_game_data.get("p1_selected_skill"))
         self.p2_skill_code = self.persistent_data.get("p2_skill", 
-                                                  self.game_app.shared_game_data.get("p2_selected_skill"))
+                                                  self.game_app.shared_game_data.get("p2_selected_skill")) # PvP 時會有 P2 技能
+
+        # ⭐️ 新增：直接從 persistent_data 獲取選擇的關卡索引 (僅 PvA 模式需要)
+        selected_level_index = None
+        if self.current_game_mode == GameSettings.GameMode.PLAYER_VS_AI:
+            selected_level_index = self.persistent_data.get("selected_level_index")
+            if selected_level_index is None:
+                if DEBUG_GAMEPLAY_STATE: 
+                    print("[State:Gameplay] CRITICAL WARNING: No 'selected_level_index' received for PvA mode. Defaulting to 0 or erroring.")
+                # 可以選擇一個預設關卡，或者拋出錯誤/返回選單
+                # 為了讓遊戲能運行，我們暫時預設為 0，但這表示流程可能有問題
+                selected_level_index = 0 
+                # 或者更好地是返回上一個狀態
+                # self.request_state_change(self.game_app.GameFlowStateName.SELECT_LEVEL_PVA, self.persistent_data)
+                # return # 提前退出 on_enter
 
         if DEBUG_GAMEPLAY_STATE:
             print(f"    Mode: {self.current_game_mode}, Input: {self.current_input_mode}")
             print(f"    P1 Skill: {self.p1_skill_code}, P2 Skill: {self.p2_skill_code}")
+            if self.current_game_mode == GameSettings.GameMode.PLAYER_VS_AI:
+                print(f"    Selected Level Index (PvA): {selected_level_index}")
 
-        # 2. 初始化 PongDuelEnv (大量邏輯來自舊的 game_session 開頭)
+
+        # 2. 初始化 PongDuelEnv 
         common_game_config = {
             'mass': 1.0, 'e_ball_paddle': 1.0, 'mu_ball_paddle': 0.4, 'enable_spin': True, 
             'magnus_factor': 0.01, 'speed_increment': 0.002, 'speed_scale_every': 3, 
             'initial_ball_speed': 0.025, 'initial_angle_deg_range': [-45, 45],
             'freeze_duration_ms': GameSettings.FREEZE_DURATION_MS,
             'countdown_seconds': GameSettings.COUNTDOWN_SECONDS,
-            'bg_music': "bg_music_level1.mp3" # 預設背景音樂
+            'bg_music': "bg_music_level1.mp3" 
         }
         render_size_for_env = 400 
         paddle_height_for_env = 10
@@ -79,84 +97,77 @@ class GameplayState(BaseState):
         if self.current_game_mode == GameSettings.GameMode.PLAYER_VS_AI:
             levels = LevelManager(models_folder=resource_path("models"))
             
-            # ⭐️ PvA 模式下的關卡選擇:
-            # ⭐️ 理想情況下，關卡選擇應該是 GameplayState 之前的一個獨立狀態，
-            # ⭐️ 並將 selected_level_index 通過 persistent_data 傳遞過來。
-            # ⭐️ 為了讓當前 GameplayState 能運作，我們需要一種方式獲取關卡。
-            # ⭐️ 假設：如果 persistent_data 中沒有 "selected_level_index"，
-            # ⭐️ 我們就調用一個選單函數來選擇。
-            
-            selected_level_index_from_data = self.persistent_data.get("selected_level_index")
-            
-            if selected_level_index_from_data is None: # 如果沒有從數據中獲取到關卡索引
-                if DEBUG_GAMEPLAY_STATE: print("    No 'selected_level_index' in persistent_data, invoking level selection menu.")
-                # 關卡選擇選單也需要縮放和定位
-                menu_logic_w = self.game_app.LOGICAL_MENU_WIDTH
-                menu_logic_h = self.game_app.LOGICAL_MENU_HEIGHT
-                scale_x = self.game_app.ACTUAL_SCREEN_WIDTH / menu_logic_w
-                scale_y = self.game_app.ACTUAL_SCREEN_HEIGHT / menu_logic_h
-                menu_scale = min(scale_x, scale_y)
-                scaled_w = int(menu_logic_w * menu_scale)
-                scaled_h = int(menu_logic_h * menu_scale)
-                offset_x = (self.game_app.ACTUAL_SCREEN_WIDTH - scaled_w) // 2
-                offset_y = (self.game_app.ACTUAL_SCREEN_HEIGHT - scaled_h) // 2
-                level_select_render_area = pygame.Rect(offset_x, offset_y, scaled_w, scaled_h)
-                
-                self.game_app.main_screen.fill(Style.BACKGROUND_COLOR) # 清理背景
-                from game.menu import show_level_selection # 臨時導入
-                selected_level_index_from_data = show_level_selection(
-                    self.game_app.main_screen,
-                    self.game_app.sound_manager, # 使用 GameApp 的 sound_manager
-                    menu_scale,
-                    level_select_render_area
-                )
-                if selected_level_index_from_data is None: # 如果玩家在關卡選擇中取消
-                    if DEBUG_GAMEPLAY_STATE: print("    Level selection cancelled by player. Returning to previous menu.")
-                    self.request_state_change(self.game_app.GameFlowStateName.SELECT_SKILL_PVA) # 或 SELECT_GAME_MODE
+            # ⭐️ 使用從 persistent_data 傳來的 selected_level_index
+            if selected_level_index is not None and 0 <= selected_level_index < len(levels.model_files):
+                levels.current_level = selected_level_index
+            else:
+                if DEBUG_GAMEPLAY_STATE: 
+                    print(f"    Invalid selected_level_index ({selected_level_index}) or no levels. Defaulting to level 0.")
+                levels.current_level = 0 # 安全回退
+                if not levels.model_files: # 如果真的沒有模型文件
+                    print("[State:Gameplay] CRITICAL: No model files found by LevelManager. Cannot start PvA game.")
+                    # 應該返回到一個安全的選單狀態，例如遊戲模式選擇
+                    self.request_state_change(self.game_app.GameFlowStateName.SELECT_GAME_MODE)
                     return # 提前退出 on_enter
 
-            levels.current_level = selected_level_index_from_data
+
             level_specific_config = levels.get_current_config()
-            if not level_specific_config:
-                level_specific_config = {
+            if not level_specific_config: # 如果 YAML 讀取失敗或不存在
+                if DEBUG_GAMEPLAY_STATE: print(f"    Failed to load config for level {levels.current_level}. Using defaults.")
+                level_specific_config = { # 提供一個最小的預設配置
                     'player_life': 3, 'ai_life': 3, 'player_paddle_width': 100, 'ai_paddle_width': 60,
                     'initial_speed': 0.02, 'bg_music': "bg_music_level1.mp3",
-                    'freeze_duration_ms': common_game_config['freeze_duration_ms']
+                    # freeze_duration_ms 應該從 common_game_config 獲取
                 }
-            common_game_config.update(level_specific_config)
+            
+            common_game_config.update(level_specific_config) # 用關卡特定配置覆蓋通用配置
+            
             player1_env_config = {
-                'initial_x': 0.5, 'initial_paddle_width': level_specific_config.get('player_paddle_width', 100),
+                'initial_x': 0.5, 
+                'initial_paddle_width': level_specific_config.get('player_paddle_width', 100),
                 'initial_lives': level_specific_config.get('player_life', 3), 
-                'skill_code': self.p1_skill_code, 'is_ai': False
+                'skill_code': self.p1_skill_code, 
+                'is_ai': False
             }
             opponent_env_config = {
-                'initial_x': 0.5, 'initial_paddle_width': level_specific_config.get('ai_paddle_width', 60),
+                'initial_x': 0.5, 
+                'initial_paddle_width': level_specific_config.get('ai_paddle_width', 60),
                 'initial_lives': level_specific_config.get('ai_life', 3), 
-                'skill_code': None, 'is_ai': True
+                'skill_code': None, # AI 通常不主動使用玩家可選技能
+                'is_ai': True
             }
             relative_model_path = levels.get_current_model_path()
             if relative_model_path:
                 absolute_model_path = resource_path(relative_model_path)
-                if os.path.exists(absolute_model_path): self.ai_agent = AIAgent(absolute_model_path)
-                else: print(f"[GameplayState] AI model not found at: {absolute_model_path}")
+                if os.path.exists(absolute_model_path): 
+                    self.ai_agent = AIAgent(absolute_model_path)
+                    if DEBUG_GAMEPLAY_STATE: print(f"    AI Agent loaded from: {absolute_model_path}")
+                else: 
+                    print(f"[GameplayState] AI model not found at: {absolute_model_path}. AI will be inactive.")
+            else:
+                 print("[GameplayState] No AI model path found for current level. AI will be inactive.")
+
 
         elif self.current_game_mode == GameSettings.GameMode.PLAYER_VS_PLAYER:
             pvp_game_specific_config = {
                 'player1_paddle_width': 100, 'player1_lives': 3,
                 'player2_paddle_width': 100, 'player2_lives': 3,
                 'bg_music': "bg_music_pvp.mp3",
-                'freeze_duration_ms': common_game_config.get('freeze_duration_ms', 500)
             }
             common_game_config.update(pvp_game_specific_config)
             player1_env_config = {
-                'initial_x': 0.5, 'initial_paddle_width': pvp_game_specific_config.get('player1_paddle_width', 100),
+                'initial_x': 0.5, 
+                'initial_paddle_width': pvp_game_specific_config.get('player1_paddle_width', 100),
                 'initial_lives': pvp_game_specific_config.get('player1_lives', 3), 
-                'skill_code': self.p1_skill_code, 'is_ai': False
+                'skill_code': self.p1_skill_code, 
+                'is_ai': False
             }
-            opponent_env_config = {
-                'initial_x': 0.5, 'initial_paddle_width': pvp_game_specific_config.get('player2_paddle_width', 100),
+            opponent_env_config = { # 在 PvP 中，"opponent" 是 P2
+                'initial_x': 0.5, 
+                'initial_paddle_width': pvp_game_specific_config.get('player2_paddle_width', 100),
                 'initial_lives': pvp_game_specific_config.get('player2_lives', 3), 
-                'skill_code': self.p2_skill_code, 'is_ai': False
+                'skill_code': self.p2_skill_code, # P2 的技能
+                'is_ai': False # P2 不是 AI
             }
         
         self.env = PongDuelEnv(
@@ -169,14 +180,13 @@ class GameplayState(BaseState):
             ball_radius_px=ball_radius_for_env,
             initial_main_screen_surface_for_renderer=self.game_app.main_screen
         )
-        self.obs, _ = self.env.reset()
+        self.obs, _ = self.env.reset() # reset 會初始化球的位置和速度
         
-        # ⭐️ 關鍵修改：在第一次使用 renderer 前，確保它已創建
         if self.env:
-            self.env.render() # 初始化 self.env.renderer
+            self.env.render() 
             if not self.env.renderer or not self.env.renderer.window:
-                if DEBUG_GAMEPLAY_STATE: print("[GameplayState.on_enter] CRITICAL: Renderer failed to initialize after first env.render().")
-                self.request_state_change(self.game_app.GameFlowStateName.SELECT_GAME_MODE) # 安全返回
+                if DEBUG_GAMEPLAY_STATE: print("[GameplayState.on_enter] CRITICAL: Renderer failed to initialize.")
+                self.request_state_change(self.game_app.GameFlowStateName.SELECT_GAME_MODE) 
                 return 
         else:
             if DEBUG_GAMEPLAY_STATE: print("[GameplayState.on_enter] CRITICAL: self.env is None after creation attempt.")
@@ -186,24 +196,22 @@ class GameplayState(BaseState):
         # 3. 播放背景音樂
         bg_music_to_play = common_game_config.get("bg_music", "bg_music_level1.mp3")
         if hasattr(self.env, 'sound_manager') and self.env.sound_manager and bg_music_to_play:
-            # ... (播放音樂的邏輯，與之前相同)
             bg_music_path = resource_path(f"assets/{bg_music_to_play}")
             if os.path.exists(bg_music_path):
                 try:
                     pygame.mixer.music.load(bg_music_path)
                     pygame.mixer.music.set_volume(GameSettings.BACKGROUND_MUSIC_VOLUME)
-                    self.env.sound_manager.play_bg_music()
+                    self.env.sound_manager.play_bg_music() # 使用 env 的 sound_manager 播放
                 except pygame.error as e:
                     if DEBUG_GAMEPLAY_STATE: print(f"[GameplayState] Error loading/playing music '{bg_music_path}': {e}")
             else:
                 if DEBUG_GAMEPLAY_STATE: print(f"[GameplayState] Warning: Music file not found: {bg_music_path}")
 
-
         # 4. 遊戲開始倒數
         initial_countdown_duration = common_game_config.get('countdown_seconds', GameSettings.COUNTDOWN_SECONDS)
-        if initial_countdown_duration > 0 :
+        if initial_countdown_duration > 0 and self.env and self.env.renderer: # 確保 env 和 renderer 已準備好
             if DEBUG_GAMEPLAY_STATE: print(f"[GameplayState] Starting initial countdown for {initial_countdown_duration} seconds.")
-            self._show_countdown_internal(initial_countdown_duration)
+            self._show_countdown_internal(initial_countdown_duration) # 這個方法依賴 self.env.renderer
 
         self.game_over_banner_shown = False
         self.is_round_over_displaying = False

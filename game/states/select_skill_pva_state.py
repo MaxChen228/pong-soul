@@ -55,14 +55,14 @@ class SelectSkillPvaState(BaseState):
                 self.game_app.shared_game_data["p1_selected_skill"] = selected_skill_code
                 self.game_app.shared_game_data["p2_selected_skill"] = None 
 
-                data_for_gameplay = {
-                    "game_mode": self.game_app.shared_game_data.get("selected_game_mode"),
-                    "input_mode": self.game_app.shared_game_data.get("selected_input_mode"),
-                    "p1_skill": selected_skill_code,
-                    "p2_skill": None
-                    # GameplayState 在 on_enter 時會處理關卡選擇 (如果需要)
-                }
-                self.request_state_change(self.game_app.GameFlowStateName.GAMEPLAY, data_for_gameplay)
+                data_for_level_selection = {
+                        "game_mode": self.game_app.shared_game_data.get("selected_game_mode"),
+                        "input_mode": self.game_app.shared_game_data.get("selected_input_mode"),
+                        "p1_skill": selected_skill_code
+                        # p2_skill is not needed here as it's always None for PvA
+                    }
+                if DEBUG_MENU_STATE: print(f"  Transitioning to LevelSelectionPva with data: {data_for_level_selection}")
+                self.request_state_change(self.game_app.GameFlowStateName.SELECT_LEVEL_PVA, data_for_level_selection)
 
             elif event.key == self.key_map['CANCEL']: 
                 self.game_app.sound_manager.play_click()
