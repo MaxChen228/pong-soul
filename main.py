@@ -88,15 +88,19 @@ class GameApp:
 
 # main.py (GameApp._register_states() 方法)
 
+# main.py (GameApp._register_states() 方法)
+
+    # main.py (GameApp._register_states() 方法)
+
     def _register_states(self):
-        # ⭐️ 引入新的狀態類
-        from game.states.menu_states import SelectGameModeState, SelectInputPvaState 
-        # from game.states.menu_states import SelectSkillPvaState, RunPvpSkillSelectionState # 稍後實現
+        from game.states.menu_states import SelectGameModeState, SelectInputPvaState, SelectSkillPvaState, RunPvpSkillSelectionState # ⭐️ 引入新狀態
         # from game.states.gameplay_state import GameplayState # 稍後實現
         
         self.states[GameFlowStateName.SELECT_GAME_MODE] = SelectGameModeState(self)
-        # ⭐️ 使用真正的 SelectInputPvaState 替換 PlaceholderState
         self.states[GameFlowStateName.SELECT_INPUT_PVA] = SelectInputPvaState(self)
+        self.states[GameFlowStateName.SELECT_SKILL_PVA] = SelectSkillPvaState(self)
+        # ⭐️ 使用真正的 RunPvpSkillSelectionState 替換 PlaceholderState
+        self.states[GameFlowStateName.RUN_PVP_SKILL_SELECTION] = RunPvpSkillSelectionState(self)
         
         # 其他狀態暫時仍然使用 PlaceholderState
         class PlaceholderState(BaseState):
@@ -126,8 +130,6 @@ class GameApp:
                     text_rect = text_surface.get_rect(center=self.render_area.center)
                     surface.blit(text_surface, text_rect)
         
-        self.states[GameFlowStateName.SELECT_SKILL_PVA] = PlaceholderState(self, "Select Skill (PvA)")
-        self.states[GameFlowStateName.RUN_PVP_SKILL_SELECTION] = PlaceholderState(self, "PvP Skill Selection")
         self.states[GameFlowStateName.GAMEPLAY] = PlaceholderState(self, "Gameplay")
 
     def _calculate_and_set_render_context(self, state_object, state_name_enum):
