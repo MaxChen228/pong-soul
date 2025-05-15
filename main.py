@@ -32,8 +32,10 @@ class GameApp:
         pygame.init()
         pygame.font.init()
 
-        self.config_manager = ConfigManager() # <--- 新增這一行：創建 ConfigManager 實例
+        self.config_manager = ConfigManager()
         if DEBUG_GAME_APP: print(f"[GameApp] ConfigManager instance created.")
+        GameSettings._config_manager = self.config_manager # <--- 新增：將實例賦值給 GameSettings
+        if DEBUG_GAME_APP: print(f"[GameApp] ConfigManager passed to GameSettings.")
 
         self.sound_manager = SoundManager()
         self.clock = pygame.time.Clock()

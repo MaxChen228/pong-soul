@@ -8,8 +8,49 @@ DEBUG_CONFIG_MANAGER = True
 class ConfigManager:
     def __init__(self):
         self._cache = {}
+        self._global_settings = {} # <--- 新增用於存放全域設定的字典
         if DEBUG_CONFIG_MANAGER:
-            print("[ConfigManager] Initialized.")
+            print("[ConfigManager] Initializing...")
+        self._preload_global_settings() # <--- 呼叫新的預載入方法
+        if DEBUG_CONFIG_MANAGER:
+            print("[ConfigManager] Initialization complete (global settings preloaded).")
+    def _preload_global_settings(self):
+        # 注意：路徑相對於專案根目錄，resource_path 會處理
+        global_settings_path = "config/global_settings.yaml"
+        data = self._load_yaml_file(global_settings_path) # 使用現有的 _load_yaml_file
+        if data:
+            self._global_settings = data
+            if DEBUG_CONFIG_MANAGER:
+                print(f"[ConfigManager] Global settings loaded from: {global_settings_path}")
+        else:
+            if DEBUG_CONFIG_MANAGER:
+                print(f"[ConfigManager] WARNING: Global settings file not found or failed to load at '{global_settings_path}'. Using empty defaults.")
+            self._global_settings = {} # 確保 self._global_settings 至少是一個空字典
+
+    def get_global_setting(self, key_string, default=None):
+        """
+        獲取全域設定值。支援使用點分隔的巢狀鍵。
+        例如: "audio.background_music_volume"
+        """
+        keys = key_string.split('.')
+        value = self._global_settings
+        try:
+            for key in keys:
+                if isinstance(value, dict): # 確保目前層級是字典
+                    value = value[key]
+                else: # 如果路徑中的某一層不是字典，則無法繼續深入
+                    if DEBUG_CONFIG_MANAGER:
+                        print(f"[ConfigManager] Warning: Key '{key}' in '{key_string}' does not lead to a dictionary.")
+                    return default
+            return value
+        except KeyError:
+            if DEBUG_CONFIG_MANAGER:
+                print(f"[ConfigManager] Global setting key '{key_string}' not found. Returning default: {default}")
+            return default
+        except Exception as e:
+            if DEBUG_CONFIG_MANAGER:
+                print(f"[ConfigManager] Error accessing global setting '{key_string}': {e}. Returning default: {default}")
+            return default
 
     def _load_yaml_file(self, file_path_relative_to_assets_or_models):
         """
