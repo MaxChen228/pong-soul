@@ -148,3 +148,8 @@ class LongPaddleSkill(Skill):
             
     def render(self, surface):
         pass # 長板技能目前沒有額外的視覺效果需要在此渲染
+
+    def get_visual_params(self):
+        # 長板技能目前沒有除了改變球拍寬度（由 PlayerState 管理）和顏色（由 Renderer 根據 PlayerState.paddle_color 繪製）
+        # 之外的特殊視覺效果需要 Renderer 額外處理。
+        return {}

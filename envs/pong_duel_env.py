@@ -101,6 +101,8 @@ class PongDuelEnv:
         self.bg_music = cfg.get("bg_music", "bg_music_level1.mp3") # 從 common_config 中獲取
 
         self.trail = []
+        self.ball_visual_key = "default" # 球的當前視覺類型鍵名 ("default", "soul_eater_bug", etc.)
+        self.active_ball_visual_skill_owner = None # 記錄是哪個玩家的技能正在覆蓋球的視覺
         self.max_trail_length = 20 # 拖尾長度
 
         self.round_concluded_by_skill = False
@@ -130,6 +132,31 @@ class PongDuelEnv:
         else:
             print(f"[SKILL_DEBUG][PongDuelEnv._create_skill] Unknown skill_code '{skill_code}' for {owner_player_state.identifier}.")
             return None
+        
+    def set_ball_visual_override(self, skill_identifier: str, active: bool, owner_identifier: str = None):
+        """
+        由技能調用，以請求改變球的視覺外觀。
+        owner_identifier 用於處理多個技能可能嘗試同時影響球視覺的情況 (雖然目前不太可能)。
+        """
+        if DEBUG_ENV: 
+            print(f"[SKILL_DEBUG][PongDuelEnv.set_ball_visual_override] Called by skill '{skill_identifier}', active: {active}, owner: {owner_identifier}")
+
+        if active:
+            # 如果目前沒有其他技能覆蓋，或者請求的技能與當前覆蓋的技能擁有者相同
+            if self.active_ball_visual_skill_owner is None or self.active_ball_visual_skill_owner == owner_identifier:
+                self.ball_visual_key = skill_identifier # 例如 "soul_eater_bug"
+                self.active_ball_visual_skill_owner = owner_identifier
+                if DEBUG_ENV: print(f"    Ball visual set to '{self.ball_visual_key}' by {owner_identifier}.")
+            else: # 其他玩家的技能正在覆蓋
+                if DEBUG_ENV: print(f"    Ball visual override IGNORED. Currently overridden by {self.active_ball_visual_skill_owner}'s skill.")
+        else:
+            # 只有當取消請求來自當前正在覆蓋視覺的技能擁有者時，才恢復預設
+            if self.active_ball_visual_skill_owner == owner_identifier or self.ball_visual_key == skill_identifier: # 後一個條件是為了處理擁有者未正確傳遞的情況
+                self.ball_visual_key = "default"
+                self.active_ball_visual_skill_owner = None
+                if DEBUG_ENV: print(f"    Ball visual restored to 'default'. Previous owner: {owner_identifier}")
+            else:
+                if DEBUG_ENV: print(f"    Ball visual restore IGNORED. Not current overrider or key mismatch. Current owner: {self.active_ball_visual_skill_owner}, current key: {self.ball_visual_key}")
 
     def activate_skill(self, player_state_object):
         if player_state_object and player_state_object.skill_instance:
@@ -204,39 +231,34 @@ class PongDuelEnv:
         """
         收集並返回所有渲染所需的遊戲狀態數據。
         """
-        # 確定球的當前視覺效果 (例如，是否被技能改變)
-        # SoulEaterBugSkill 會直接修改 self.renderer.ball_image，
-        # Renderer 初始化時也會根據 env.ball_radius_px 縮放球的圖像。
-        # 理想情況下，這裡應該返回一個 image_key，Renderer 根據 key 獲取/生成圖像。
-        # 目前，Renderer 仍然直接使用 self.renderer.ball_image，這部分解耦稍後處理。
-        # 但我們需要在 Renderer 中獲取球的旋轉角度。
-        # Renderer 的 self.ball_image 是已經縮放過的。
+        player1_skill_visual_params = {}
+        if self.player1.skill_instance and hasattr(self.player1.skill_instance, 'get_visual_params'):
+            player1_skill_visual_params = self.player1.skill_instance.get_visual_params()
 
-        # 技能的視覺效果參數 (例如 SlowMoSkill 的衝擊波、時鐘、軌跡)
-        # 這些目前由技能的 render 方法直接繪製，暫時不包含在 render_data 中。
-        # 未來可以考慮將這些參數也收集到這裡，由 Renderer 統一繪製。
-
-        player1_skill_data = None
+        player1_skill_data_for_ui = None
         if self.player1.skill_instance:
-            player1_skill_data = {
-                "instance": self.player1.skill_instance, # <-- 新增這一行
+            player1_skill_data_for_ui = {
                 "code_name": self.player1.skill_code_name,
                 "is_active": self.player1.skill_instance.is_active(),
                 "energy_ratio": self.player1.skill_instance.get_energy_ratio(),
                 "cooldown_seconds": self.player1.skill_instance.get_cooldown_seconds(),
+                "visual_params": player1_skill_visual_params # 包含技能的視覺參數
             }
 
-        opponent_skill_data = None
+        opponent_skill_visual_params = {}
+        if self.opponent.skill_instance and hasattr(self.opponent.skill_instance, 'get_visual_params'):
+            opponent_skill_visual_params = self.opponent.skill_instance.get_visual_params()
+
+        opponent_skill_data_for_ui = None
         if self.opponent.skill_instance:
-            opponent_skill_data = {
-                "instance": self.opponent.skill_instance, # <-- 新增這一行
+            opponent_skill_data_for_ui = {
                 "code_name": self.opponent.skill_code_name,
                 "is_active": self.opponent.skill_instance.is_active(),
                 "energy_ratio": self.opponent.skill_instance.get_energy_ratio(),
                 "cooldown_seconds": self.opponent.skill_instance.get_cooldown_seconds(),
+                "visual_params": opponent_skill_visual_params # 包含技能的視覺參數
             }
 
-        # 遊戲是否處於凍結狀態
         freeze_active = (self.freeze_timer > 0 and 
                         (pygame.time.get_ticks() - self.freeze_timer < self.freeze_duration))
 
@@ -245,18 +267,19 @@ class PongDuelEnv:
             "ball": {
                 "x_norm": self.ball_x,
                 "y_norm": self.ball_y,
-                "spin": self.spin, # Renderer 會用此計算 ball_angle
-                "radius_norm": self.ball_radius_normalized, # Renderer 可能需要這個來輔助繪製或碰撞視覺
+                "spin": self.spin, 
+                "radius_norm": self.ball_radius_normalized,
+                "image_key": self.ball_visual_key # <-- 新增，例如 "default" 或 "soul_eater_bug"
             },
             "player1": {
                 "x_norm": self.player1.x,
-                "paddle_width_norm": self.player1.paddle_width_normalized, # Renderer 用這個和 scale_factor 算實際像素寬
+                "paddle_width_norm": self.player1.paddle_width_normalized, 
                 "paddle_color": self.player1.paddle_color,
                 "lives": self.player1.lives,
                 "max_lives": self.player1.max_lives,
-                "skill_data": player1_skill_data,
-                "is_ai": self.player1.is_ai, # Renderer 可能不需要，但包含無妨
-                "identifier": self.player1.identifier, # 主要用於調試或 PvP UI
+                "skill_data": player1_skill_data_for_ui, # UI條和技能視覺效果都會用到
+                "is_ai": self.player1.is_ai, 
+                "identifier": self.player1.identifier, 
             },
             "opponent": {
                 "x_norm": self.opponent.x,
@@ -264,15 +287,18 @@ class PongDuelEnv:
                 "paddle_color": self.opponent.paddle_color,
                 "lives": self.opponent.lives,
                 "max_lives": self.opponent.max_lives,
-                "skill_data": opponent_skill_data,
+                "skill_data": opponent_skill_data_for_ui, # UI條和技能視覺效果都會用到
                 "is_ai": self.opponent.is_ai,
                 "identifier": self.opponent.identifier,
             },
-            "trail": list(self.trail), # 複製列表，避免直接修改原始數據
-            "paddle_height_norm": self.paddle_height_normalized, # 所有球拍的正規化高度
+            "trail": list(self.trail), 
+            "paddle_height_norm": self.paddle_height_normalized, 
             "freeze_active": freeze_active,
-            # Renderer 自身會維護 ball_image 和 ball_angle，所以不從這裡傳遞
-            # 但 spin 是需要的，Renderer 用它更新 ball_angle
+            # PongDuelEnv 現在還需要傳遞技能自身的邏輯像素尺寸給 Renderer，以便 Renderer 可以正確縮放
+            # 例如 SlowMoSkill 的 clock_radius_logic_px, paddle_trail 的 paddle_width_logic_px 等
+            # 這些可以包含在 playerX.skill_data.visual_params 中，由技能的 get_visual_params 提供
+            "logical_paddle_height_px": self.paddle_height_px, # Renderer 可能需要這個來畫軌跡
+            # self.logical_ball_radius_px 已經在 Renderer init 時傳遞
         }
         return render_data
     def get_lives(self):

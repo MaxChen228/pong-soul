@@ -39,5 +39,14 @@ class Skill(ABC):
     def render(self, surface):
         pass
 
+    @abstractmethod
+    def get_visual_params(self):
+        """
+        返回一個包含此技能當前視覺效果所需參數的字典。
+        如果技能沒有額外的視覺效果，則返回空字典。
+        這些參數將由 Renderer 用來繪製效果。
+        """
+        pass
+
     def has_full_energy_effect(self):
         return self.get_energy_ratio() >= 1.0

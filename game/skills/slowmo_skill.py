@@ -198,257 +198,93 @@ class SlowMoSkill(Skill):
 
 
     def render(self, surface, game_render_area_on_screen, scale_factor, is_owner_bottom_perspective_in_this_area):
-        # surface: 主繪圖表面 (main_screen)
-        # game_render_area_on_screen: pygame.Rect，技能擁有者的遊戲邏輯區域在 surface 上的實際像素矩形
-        # scale_factor: 應用於遊戲內容的縮放因子
-        # is_owner_bottom_perspective_in_this_area: 布林值。True表示當前渲染的這個區域是技能擁有者自己作為底部玩家的視角。
-        #                                        False表示是在對手視角中渲染此技能效果（如果需要跨視角渲染）。
-        #                                        在我們的分屏情況下：
-        #                                        - P1用技能，在P1視口渲染 -> True
-        #                                        - P2用技能，在P2視口渲染 -> True (因為P2在其視口也看自己為底部)
+        # Pygame 繪圖邏輯已移至 get_visual_params() 和 Renderer
+        pass
 
+    def get_visual_params(self):
+        """
+        收集 SlowMo 技能的視覺參數，供 Renderer 使用。
+        """
         if not self.active and not self.fadeout_active:
-            return
+            return {"type": "slowmo", "active_effects": False}
 
         current_alpha_ratio = 1.0
         if self.fadeout_active:
             current_alpha_ratio = self._get_fadeout_ratio()
-        
+
         if current_alpha_ratio <= 0.01 and not self.active:
-            if self.shockwaves: self.shockwaves.clear()
-            if self.owner_trail_positions_x_norm: self.owner_trail_positions_x_norm.clear()
-            return
+            return {"type": "slowmo", "active_effects": False}
 
-        ga_left = game_render_area_on_screen.left
-        ga_top = game_render_area_on_screen.top
-        ga_width_scaled = game_render_area_on_screen.width
-        ga_height_scaled = game_render_area_on_screen.height
-
-        # 1) 衝擊波繪製
+        # 衝擊波參數
+        shockwave_params_list = []
         if self.shockwaves:
-            # ... (alpha 和顏色計算不變) ...
-            base_fill_alpha = 60; base_border_alpha = 180
-            fill_color_rgb = (50, 150, 255); border_color_rgb = (200, 220, 255)
+            base_fill_alpha = 60
+            base_border_alpha = 180
+            fill_color_rgb = (50, 150, 255) # 來自舊 render
+            border_color_rgb = (200, 220, 255) # 來自舊 render
             final_fill_alpha = int(base_fill_alpha * current_alpha_ratio)
             final_border_alpha = int(base_border_alpha * current_alpha_ratio)
 
-            if final_fill_alpha > 0 or final_border_alpha > 0:
-                for wave in self.shockwaves:
-                    # wave["cx_norm"] 是技能擁有者在場地中的正規化 X (0-1)
-                    # wave["cy_norm"] 是技能擁有者在場地中的正規化 Y (0-1, 0=頂, 1=底)
-                    
-                    # ⭐️ 關鍵修改：根據當前視角調整 Y 座標
-                    # is_owner_bottom_perspective_in_this_area 告訴我們，在這個 render_area 中，
-                    # 技能擁有者是否被視為底部玩家。
-                    # 如果是，那麼其原始的場地Y座標 (wave["cy_norm"]) 需要被正確映射到這個視角的底部。
-                    # 然而，wave["cy_norm"] 已經是相對於整個場地的 (0頂, 1底)。
-                    # 我們在 _render_player_view 中已經處理了視角的 Y 軸顛倒。
-                    # 所以，這裡的 cx_norm, cy_norm 應該可以直接用來計算在 game_render_area_on_screen 內的相對位置。
-                    # 問題在於衝擊波的 wave["cy_norm"] 是從誰的球拍發出的。
-                    # activate() 中，cy_norm 的計算是正確的，它代表了技能擁有者球拍在場地中的Y。
+            for wave in self.shockwaves:
+                # 衝擊波的 cx_norm 和 cy_norm 是技能擁有者球拍在 *場地* 中的正規化座標。
+                # Renderer 在繪製時需要根據 *當前視角* 來決定這個正規化座標如何映射。
+                # 我們在這裡直接傳遞場地座標，Renderer 的 _render_player_view 或其輔助函數
+                # 會處理視角轉換（如果需要的話，但 SlowMo 的衝擊波和時鐘通常是畫在視角中心或固定位置）。
+                # 對於 SlowMo，衝擊波是從技能擁有者的球拍發出的，所以 cx_norm, cy_norm 是關鍵。
+                shockwave_params_list.append({
+                    "cx_norm": wave["cx_norm"],
+                    "cy_norm": wave["cy_norm"], # 正規化的場地 Y 座標
+                    "current_radius_logic_px": wave["current_radius_logic_px"],
+                    "fill_color_rgba": (*fill_color_rgb, final_fill_alpha),
+                    "border_color_rgba": (*border_color_rgb, final_border_alpha),
+                    "border_width_logic_px": 4 # 假設固定的邏輯寬度，Renderer 會縮放它
+                })
 
-                    # 衝擊波中心X (相對於 game_render_area 左上角)
-                    shockwave_center_x_in_area_scaled = wave["cx_norm"] * ga_width_scaled
-                    
-                    # 衝擊波中心Y (相對於 game_render_area 左上角)
-                    # 如果 is_owner_bottom_perspective_in_this_area 為 True，則 wave["cy_norm"] (場地Y)
-                    # 應該映射到此區域的相應Y。
-                    # 例如，如果 P2 (opponent, 場地Y約為0.1) 使用技能，並且 is_owner_bottom_perspective_in_this_area 為 True (P2的視口)
-                    # 我們希望衝擊波從 P2 視口的底部發出。這意味著 wave["cy_norm"] 需要被 "視角轉換"。
-                    
-                    # 不，更簡單的邏輯是：
-                    # activate 時，cy_norm 存儲的是技能擁有者球拍表面的【正規化場地Y座標】。
-                    # P1的球拍表面Y (場地座標系) 在 1.0 - paddle_h_norm 附近。
-                    # P2的球拍表面Y (場地座標系) 在 paddle_h_norm 附近。
-                    
-                    # 在 _render_player_view 中，當 is_top_player_perspective (渲染P2視角) 時，
-                    # 場地Y會被 (1.0 - y) 轉換。
-                    # 所以，如果技能擁有者是P2 (cy_norm 接近0)，在P2的視角中，這個Y會被畫在頂部。這是問題所在。
-
-                    # 正確的邏輯：衝擊波應該從【當前視角中，技能擁有者的球拍位置】發出。
-                    # 我們在 activate 時記錄的是技能擁有者在【場地】中的位置。
-                    # 在 render 時，我們需要知道技能擁有者在【當前這個視角】的底部還是頂部。
-                    
-                    # 獲取技能擁有者在【當前視角下】的球拍Y位置（底部或頂部）
-                    owner_paddle_y_on_current_area_norm = 0.0
-                    if is_owner_bottom_perspective_in_this_area:
-                        # 技能擁有者在此視角中是底部玩家
-                        owner_paddle_y_on_current_area_norm = 1.0 - (self.env.paddle_height_normalized / 2) # 近似底部
-                    else:
-                        # 技能擁有者在此視角中是頂部玩家 (這通常不會發生，因為我們只在自己視角渲染自己技能)
-                        # 但為了完整性，如果將來要畫對方技能效果，就需要這個
-                        owner_paddle_y_on_current_area_norm = self.env.paddle_height_normalized / 2 # 近似頂部
-
-                    shockwave_center_y_in_area_scaled = owner_paddle_y_on_current_area_norm * ga_height_scaled
-
-                    # 轉換為在 surface 上的絕對像素座標
-                    cx_on_surface_px = ga_left + int(shockwave_center_x_in_area_scaled)
-                    cy_on_surface_px = ga_top + int(shockwave_center_y_in_area_scaled)
-                    
-                    current_radius_scaled_px = int(wave["current_radius_logic_px"] * scale_factor)
-                    scaled_wave_border_width = max(1, int(4 * scale_factor * current_alpha_ratio))
-
-                    if current_radius_scaled_px > 0:
-                        # ... (衝擊波繪製邏輯不變, 使用 cx_on_surface_px, cy_on_surface_px)
-                        if final_fill_alpha > 0:
-                            temp_circle_surf_size = current_radius_scaled_px * 2
-                            if temp_circle_surf_size > 0:
-                                temp_circle_surf = pygame.Surface((temp_circle_surf_size, temp_circle_surf_size), pygame.SRCALPHA)
-                                pygame.draw.circle(temp_circle_surf, (*fill_color_rgb, final_fill_alpha),
-                                                   (current_radius_scaled_px, current_radius_scaled_px), current_radius_scaled_px)
-                                surface.blit(temp_circle_surf, (cx_on_surface_px - current_radius_scaled_px, cy_on_surface_px - current_radius_scaled_px))
-                        if final_border_alpha > 0 and scaled_wave_border_width > 0:
-                             pygame.draw.circle(surface, (*border_color_rgb, final_border_alpha),
-                                               (cx_on_surface_px, cy_on_surface_px), current_radius_scaled_px, width=scaled_wave_border_width)
-        
-        # 2) 球拍軌跡繪製
+        # 球拍軌跡參數
+        paddle_trail_params_list = []
         if self.owner_trail_positions_x_norm:
-            owner_paddle_width_scaled = int(self.owner.paddle_width * scale_factor)
-            owner_paddle_height_scaled = int(self.env.paddle_height_px * scale_factor)
-            
-            rect_y_on_surface_px = 0
-            # ⭐️ 軌跡的Y座標應該是技能擁有者在【當前視角】的球拍位置（底部）
-            if is_owner_bottom_perspective_in_this_area:
-                 rect_y_on_surface_px = ga_top + ga_height_scaled - owner_paddle_height_scaled
-            else:
-                 # 如果要在對手視角畫己方軌跡 (己方在頂部)
-                 rect_y_on_surface_px = ga_top
-            
+            # 軌跡的 Y 位置是固定的（在球拍的 Y 層），X 位置是變化的
+            # Renderer 需要知道擁有者的 paddle_width (邏輯) 和 paddle_height (邏輯) 來畫軌跡塊
             for i, trail_x_norm in enumerate(self.owner_trail_positions_x_norm):
-                # ... (alpha 計算不變) ...
                 trail_alpha_ratio_local = (i + 1) / len(self.owner_trail_positions_x_norm)
                 base_alpha = int(120 * trail_alpha_ratio_local)
                 final_trail_alpha = int(base_alpha * current_alpha_ratio)
+                trail_color_rgb = self.trail_color[:3] # 來自 cfg
 
                 if final_trail_alpha > 0:
-                    trail_color_rgb = self.trail_color[:3]
-                    
-                    trail_center_x_in_area_scaled = int(trail_x_norm * ga_width_scaled)
-                    rect_center_x_on_surface_px = ga_left + trail_center_x_in_area_scaled
-                    rect_left_on_surface_px = rect_center_x_on_surface_px - owner_paddle_width_scaled // 2
-                    
-                    trail_surf = pygame.Surface((owner_paddle_width_scaled, owner_paddle_height_scaled), pygame.SRCALPHA)
-                    trail_surf.fill((*trail_color_rgb, final_trail_alpha))
-                    surface.blit(trail_surf, (rect_left_on_surface_px, rect_y_on_surface_px))
+                    paddle_trail_params_list.append({
+                        "x_norm": trail_x_norm, # 軌跡塊的中心 X (正規化)
+                        "color_rgba": (*trail_color_rgb, final_trail_alpha)
+                        # Renderer 還需要知道擁有者的 paddle_width_norm 和 paddle_height_norm
+                        # 這個可以從 player_data 中獲取，或者在這裡也包含
+                    })
 
-        # 3) 時鐘 UI 繪製 (保持在 game_render_area_on_screen 中心)
+        # 時鐘 UI 參數 (通常在遊戲區域中心)
+        clock_param = None
         should_draw_clock = self.active or (self.fadeout_active and current_alpha_ratio > 0.01)
-        if should_draw_clock:
-            # ... (時鐘繪製邏輯基本不變，它已經是相對於 game_render_area_on_screen 中心)
-            clock_rgb = self.clock_color[:3]
-            base_clock_alpha = self.clock_color[3] if len(self.clock_color) > 3 else 100
-            final_clock_alpha = int(base_clock_alpha * current_alpha_ratio)
-
-            if final_clock_alpha > 0:
-                clock_center_x_on_surface = game_render_area_on_screen.centerx
-                clock_center_y_on_surface = game_render_area_on_screen.centery
-                scaled_clock_radius = int(self.clock_radius_logic_px * scale_factor)
-                scaled_clock_line_width = max(1, int(self.clock_line_width_logic_px * scale_factor))
-                
-                if scaled_clock_radius > 0 :
-                    energy_display_ratio = self.get_energy_ratio() if self.active else 0.0
-                    angle_deg_remaining = energy_display_ratio * 360.0
-                    arc_rect = pygame.Rect(
-                        clock_center_x_on_surface - scaled_clock_radius,
-                        clock_center_y_on_surface - scaled_clock_radius,
-                        scaled_clock_radius * 2,
-                        scaled_clock_radius * 2
-                    )
-                    start_angle_rad = math.radians(-90) 
-                    end_angle_rad = math.radians(-90 + angle_deg_remaining)
-                    if scaled_clock_line_width > 0 and scaled_clock_radius > scaled_clock_line_width // 2 :
-                        try:
-                            pygame.draw.arc(surface, (*clock_rgb, final_clock_alpha), arc_rect,
-                                            start_angle_rad, end_angle_rad, width=scaled_clock_line_width)
-                        except TypeError: 
-                             pygame.draw.arc(surface, (*clock_rgb, final_clock_alpha), arc_rect,
-                                            start_angle_rad, end_angle_rad, scaled_clock_line_width)
-        
-        # 2) 球拍軌跡繪製
-        if self.owner_trail_positions_x_norm:
-            # 獲取縮放後的球拍尺寸
-            owner_paddle_width_scaled = int(self.owner.paddle_width * scale_factor) # owner.paddle_width 是邏輯像素
-            owner_paddle_height_scaled = int(self.env.paddle_height_px * scale_factor) # env.paddle_height_px 是邏輯像素
-            
-            # 確定軌跡的 Y 座標 (球拍的 Y 位置)
-            # 這取決於技能擁有者是上方還是下方玩家，並且是在 game_render_area_on_screen 內
-            # ⭐️⭐️⭐️ 關鍵修正：軌跡的Y座標應該總是基於 is_owner_bottom_perspective_in_this_area ⭐️⭐️⭐️
-            if is_owner_bottom_perspective_in_this_area:
-                 rect_y_on_surface_px = ga_top + ga_height_scaled - owner_paddle_height_scaled
-            else:
-                 # 這種情況目前不會發生，因為我們只在擁有者自己的視角渲染技能。
-                 # 但如果將來要在對手視角畫擁有者的軌跡（此時擁有者在頂部），就需要這個：
-                 rect_y_on_surface_px = ga_top
-
-            for i, trail_x_norm in enumerate(self.owner_trail_positions_x_norm):
-                # 計算軌跡 Alpha (淡化效果)
-                trail_alpha_ratio_local = (i + 1) / len(self.owner_trail_positions_x_norm)
-                base_alpha = int(120 * trail_alpha_ratio_local) # 軌跡的基礎 Alpha (調低一點)
-                final_trail_alpha = int(base_alpha * current_alpha_ratio) # 結合技能淡出效果
-
-                if final_trail_alpha > 0:
-                    trail_color_rgb = self.trail_color[:3] # 軌跡顏色 RGB
-                    
-                    # 計算軌跡矩形中心X在 game_render_area_on_screen內的相對像素位置
-                    trail_center_x_in_area_scaled = int(trail_x_norm * game_render_area_on_screen.width)
-                    # 轉換為在 surface 上的絕對像素位置
-                    rect_center_x_on_surface_px = game_render_area_on_screen.left + trail_center_x_in_area_scaled
-                    
-                    rect_left_on_surface_px = rect_center_x_on_surface_px - owner_paddle_width_scaled // 2
-                    
-                    # 創建帶 Alpha 的軌跡表面
-                    trail_surf = pygame.Surface((owner_paddle_width_scaled, owner_paddle_height_scaled), pygame.SRCALPHA)
-                    trail_surf.fill((*trail_color_rgb, final_trail_alpha))
-                    surface.blit(trail_surf, (rect_left_on_surface_px, rect_y_on_surface_px))
-
-        # 3) 時鐘 UI 繪製
-        # 時鐘應該顯示在 game_render_area_on_screen 的中心
-        should_draw_clock = self.active or (self.fadeout_active and current_alpha_ratio > 0.01)
-        
         if should_draw_clock:
             clock_rgb = self.clock_color[:3]
             base_clock_alpha = self.clock_color[3] if len(self.clock_color) > 3 else 100
             final_clock_alpha = int(base_clock_alpha * current_alpha_ratio)
 
             if final_clock_alpha > 0:
-                # 計算時鐘在 game_render_area_on_screen 的中心點
-                clock_center_x_on_surface = game_render_area_on_screen.centerx
-                clock_center_y_on_surface = game_render_area_on_screen.centery
-                
-                # 縮放後的時鐘半徑和線寬
-                scaled_clock_radius = int(self.clock_radius_logic_px * scale_factor)
-                scaled_clock_line_width = max(1, int(self.clock_line_width_logic_px * scale_factor))
-                
-                if scaled_clock_radius > 0 : # 只有當半徑大於0才繪製
-                    # 繪製時鐘背景圓 (如果需要，或者直接畫指針)
-                    # pygame.draw.circle(surface, (*clock_rgb, final_clock_alpha // 2), # 半透明背景
-                    #                    (clock_center_x_on_surface, clock_center_y_on_surface), scaled_clock_radius)
+                energy_display_ratio = self.get_energy_ratio() if self.active else 0.0
+                clock_param = {
+                    "is_visible": True,
+                    "radius_logic_px": self.clock_radius_logic_px,
+                    "line_width_logic_px": self.clock_line_width_logic_px,
+                    "color_rgba": (*clock_rgb, final_clock_alpha),
+                    "progress_ratio": energy_display_ratio # 0.0 到 1.0
+                }
 
-                    # 繪製時鐘指針或進度條
-                    energy_display_ratio = self.get_energy_ratio() if self.active else 0.0 # 技能剩餘時間比例 (1.0 -> 0.0)
-                    angle_deg_remaining = energy_display_ratio * 360.0 # 剩餘能量對應的角度
-                    
-                    # 繪製圓弧表示剩餘能量
-                    # Pygame 的 arc 需要一個矩形和起始/結束角度
-                    arc_rect = pygame.Rect(
-                        clock_center_x_on_surface - scaled_clock_radius,
-                        clock_center_y_on_surface - scaled_clock_radius,
-                        scaled_clock_radius * 2,
-                        scaled_clock_radius * 2
-                    )
-                    start_angle_rad = math.radians(-90) # 從12點鐘方向開始
-                    end_angle_rad = math.radians(-90 + angle_deg_remaining)
-
-                    # 確保線寬有效
-                    if scaled_clock_line_width > 0 and scaled_clock_radius > scaled_clock_line_width // 2 :
-                        try:
-                            pygame.draw.arc(surface, (*clock_rgb, final_clock_alpha), arc_rect,
-                                            start_angle_rad, end_angle_rad, width=scaled_clock_line_width)
-                        except TypeError: # Pygame < 2.0.1 draw.arc width might behave differently
-                             pygame.draw.arc(surface, (*clock_rgb, final_clock_alpha), arc_rect,
-                                            start_angle_rad, end_angle_rad, scaled_clock_line_width)
-
-
-                    # (可選) 繪製一個小的中心點
-                    # pygame.draw.circle(surface, (*clock_rgb, final_clock_alpha),
-                    #                    (clock_center_x_on_surface, clock_center_y_on_surface), max(1, int(2*scale_factor)))
+        return {
+            "type": "slowmo",
+            "active_effects": True,
+            "shockwaves": shockwave_params_list,
+            "paddle_trails": paddle_trail_params_list,
+            "clock": clock_param,
+            # 為了讓 Renderer 畫軌跡時知道球拍的邏輯寬高
+            # 雖然 Renderer 也可以從 player_data 獲取，但為清晰起見，可在此處提供
+            "owner_paddle_width_logic_px": self.owner.base_paddle_width, # 或者 self.owner.paddle_width (當前)
+            "owner_paddle_height_logic_px": self.env.paddle_height_px # 從 env 獲取標準邏輯高度
+        }

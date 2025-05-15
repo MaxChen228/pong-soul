@@ -49,7 +49,6 @@ class SoulEaterBugSkill(Skill):
         
         if DEBUG_BUG_SKILL: print(f"[SKILL_DEBUG][SoulEaterBugSkill] ({self.owner.identifier}) Initialized. Target: {self.target_player_state.identifier}")
 
-        self.original_ball_image_surface_backup = None # 用於備份 Renderer 中的原始球圖像 Surface
         bug_image_path = cfg.get("bug_image_path", "assets/soul_eater_bug.png") # 確保有預設路徑
         self.bug_display_scale_factor = float(cfg.get("bug_display_scale_factor", 1.5))
         
@@ -129,14 +128,12 @@ class SoulEaterBugSkill(Skill):
         self.active = True
         self.activated_time = cur_time
         
-        # ⭐️ 修改球的外觀 (短期方案：直接修改 Renderer 的 ball_image)
-        # 理想方案：self.env.set_current_ball_visual("soul_eater_bug_key")
-        if hasattr(self.env, 'renderer') and self.env.renderer is not None:
-            # 備份原始球圖像，以便恢復
-            if self.original_ball_image_surface_backup is None: # 只備份一次
-                 self.original_ball_image_surface_backup = self.env.renderer.ball_image 
-            self.env.renderer.ball_image = self.bug_image_transformed # 應用蟲子圖像
-            if DEBUG_BUG_SKILL: print(f"[SKILL_DEBUG][SoulEaterBugSkill] ({self.owner.identifier}) Ball image changed to bug.")
+        # 通知 Env 球的視覺效果已被此技能覆蓋
+        if hasattr(self.env, 'set_ball_visual_override'):
+            self.env.set_ball_visual_override(skill_identifier="soul_eater_bug", active=True, owner_identifier=self.owner.identifier)
+            if DEBUG_BUG_SKILL: print(f"[SKILL_DEBUG][SoulEaterBugSkill] ({self.owner.identifier}) Notified Env to change ball visual to bug.")
+        else:
+            if DEBUG_BUG_SKILL: print(f"[SKILL_DEBUG][SoulEaterBugSkill] ({self.owner.identifier}) WARNING: env.set_ball_visual_override method not found!")
         
         # 重置球（蟲）的初始速度和旋轉（因為蟲有自己的移動邏輯）
         self.env.ball_vx = 0
@@ -402,11 +399,12 @@ class SoulEaterBugSkill(Skill):
         self.is_resting = False # 確保休息狀態也重置
         self.cooldown_start_time = pygame.time.get_ticks()
 
-        # 恢復球的原始外觀
-        if hasattr(self.env, 'renderer') and self.env.renderer is not None and self.original_ball_image_surface_backup is not None:
-            self.env.renderer.ball_image = self.original_ball_image_surface_backup
-            self.original_ball_image_surface_backup = None # 清除備份，下次 activate 時重新備份
-            if DEBUG_BUG_SKILL: print(f"[SKILL_DEBUG][SoulEaterBugSkill] ({self.owner.identifier}) Ball image restored.")
+        # 通知 Env 取消球的視覺效果覆蓋
+        if hasattr(self.env, 'set_ball_visual_override'):
+            self.env.set_ball_visual_override(skill_identifier="soul_eater_bug", active=False, owner_identifier=self.owner.identifier)
+            if DEBUG_BUG_SKILL: print(f"[SKILL_DEBUG][SoulEaterBugSkill] ({self.owner.identifier}) Notified Env to restore default ball visual.")
+        else:
+            if DEBUG_BUG_SKILL: print(f"[SKILL_DEBUG][SoulEaterBugSkill] ({self.owner.identifier}) WARNING: env.set_ball_visual_override method not found on deactivate!")
         
         # 停止音效
         if self.crawl_channel:
@@ -452,3 +450,21 @@ class SoulEaterBugSkill(Skill):
         # 如果蟲子有額外的視覺效果（例如特定的光暈、粒子），可以在這裡繪製。
         # 目前，我們讓 Renderer 負責繪製被替換後的球（蟲）圖像。
         pass
+    
+    def get_visual_params(self):
+        """
+        SoulEaterBugSkill 主要通過改變 Env 中的球視覺類型來影響渲染。
+        如果蟲子本身有額外的、獨立於球的視覺效果（例如光環），可以在這裡返回參數。
+        目前，我們假設它只改變球的基礎外觀，該改變由 PongDuelEnv.get_render_data() 中的
+        ball["image_key"] 處理。
+        """
+        # 如果將來蟲子有例如移動時的粒子效果、特殊光暈等，可以在這裡返回參數。
+        # 例如:
+        # if self.is_active():
+        #     return {
+        #         "type": "soul_eater_bug",
+        #         "active_effects": True,
+        #         "aura_color_rgba": (128, 0, 128, 100) if self.is_resting else (200, 0, 200, 150),
+        #         # 其他參數...
+        #     }
+        return {"type": "soul_eater_bug", "active_effects": self.is_active()} # 基本標識
