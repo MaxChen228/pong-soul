@@ -372,11 +372,13 @@ class SlowMoSkill(Skill):
             
             # 確定軌跡的 Y 座標 (球拍的 Y 位置)
             # 這取決於技能擁有者是上方還是下方玩家，並且是在 game_render_area_on_screen 內
-            rect_y_on_surface_px = 0
-            if self.owner == self.env.player1: # P1 在下方
-                rect_y_on_surface_px = game_render_area_on_screen.top + game_render_area_on_screen.height - owner_paddle_height_scaled
-            else: # Opponent/P2 在上方
-                rect_y_on_surface_px = game_render_area_on_screen.top
+            # ⭐️⭐️⭐️ 關鍵修正：軌跡的Y座標應該總是基於 is_owner_bottom_perspective_in_this_area ⭐️⭐️⭐️
+            if is_owner_bottom_perspective_in_this_area:
+                 rect_y_on_surface_px = ga_top + ga_height_scaled - owner_paddle_height_scaled
+            else:
+                 # 這種情況目前不會發生，因為我們只在擁有者自己的視角渲染技能。
+                 # 但如果將來要在對手視角畫擁有者的軌跡（此時擁有者在頂部），就需要這個：
+                 rect_y_on_surface_px = ga_top
 
             for i, trail_x_norm in enumerate(self.owner_trail_positions_x_norm):
                 # 計算軌跡 Alpha (淡化效果)
