@@ -88,49 +88,16 @@ class GameApp:
 
 # main.py (GameApp._register_states() 方法)
 
-# main.py (GameApp._register_states() 方法)
-
-    # main.py (GameApp._register_states() 方法)
-
     def _register_states(self):
-        from game.states.menu_states import SelectGameModeState, SelectInputPvaState, SelectSkillPvaState, RunPvpSkillSelectionState # ⭐️ 引入新狀態
-        # from game.states.gameplay_state import GameplayState # 稍後實現
+        from game.states.menu_states import SelectGameModeState, SelectInputPvaState, SelectSkillPvaState, RunPvpSkillSelectionState
+        from game.states.gameplay_state import GameplayState # ⭐️ 引入 GameplayState
         
         self.states[GameFlowStateName.SELECT_GAME_MODE] = SelectGameModeState(self)
         self.states[GameFlowStateName.SELECT_INPUT_PVA] = SelectInputPvaState(self)
         self.states[GameFlowStateName.SELECT_SKILL_PVA] = SelectSkillPvaState(self)
-        # ⭐️ 使用真正的 RunPvpSkillSelectionState 替換 PlaceholderState
         self.states[GameFlowStateName.RUN_PVP_SKILL_SELECTION] = RunPvpSkillSelectionState(self)
-        
-        # 其他狀態暫時仍然使用 PlaceholderState
-        class PlaceholderState(BaseState):
-            def __init__(self, game_app, name="Placeholder"):
-                super().__init__(game_app)
-                self.name = name
-                self.font = None
-                if DEBUG_GAME_APP: print(f"[PlaceholderState:{self.name}] Initialized.")
-            def on_enter(self, previous_state_data=None):
-                super().on_enter(previous_state_data)
-                font_size = 30
-                actual_font_size = int(font_size * self.scale_factor)
-                self.font = Style.get_font(actual_font_size if actual_font_size > 0 else 30 )
-            def handle_event(self, event):
-                if event.type == pygame.KEYDOWN:
-                    if event.key == pygame.K_ESCAPE:
-                        print(f"[PlaceholderState:{self.name}] ESC pressed, requesting quit.")
-                        self.request_quit()
-                    elif event.key == pygame.K_SPACE:
-                        print(f"[PlaceholderState:{self.name}] SPACE pressed, placeholder to QUIT.")
-                        self.request_state_change(self.game_app.GameFlowStateName.QUIT)
-            def update(self, dt): pass
-            def render(self, surface):
-                pygame.draw.rect(surface, Style.BACKGROUND_COLOR, self.render_area)
-                if self.font:
-                    text_surface = self.font.render(f"State: {self.name}", True, Style.TEXT_COLOR)
-                    text_rect = text_surface.get_rect(center=self.render_area.center)
-                    surface.blit(text_surface, text_rect)
-        
-        self.states[GameFlowStateName.GAMEPLAY] = PlaceholderState(self, "Gameplay")
+        # ⭐️ 使用真正的 GameplayState 替換 PlaceholderState
+        self.states[GameFlowStateName.GAMEPLAY] = GameplayState(self)
 
     def _calculate_and_set_render_context(self, state_object, state_name_enum):
         """為指定的狀態物件計算並設定 scale_factor 和 render_area。"""
