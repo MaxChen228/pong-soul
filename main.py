@@ -351,6 +351,7 @@ def game_session(main_screen_surface_param, current_input_mode, p1_skill_code_fr
 
     while game_running:
         for event in pygame.event.get():
+            # ... (事件處理不變) ...
             if event.type == pygame.QUIT:
                 game_running = False
                 game_session_result_state = "quit"
@@ -362,46 +363,91 @@ def game_session(main_screen_surface_param, current_input_mode, p1_skill_code_fr
         if not game_running: break
 
         keys = pygame.key.get_pressed()
-        p1_ingame_action = 1
+        p1_ingame_action = 1 # 預設不動 (0: left, 1: stay, 2: right)
 
         if current_input_mode == "keyboard":
             if keys[P1_GAME_KEYS['LEFT_KB']]: p1_ingame_action = 0
             elif keys[P1_GAME_KEYS['RIGHT_KB']]: p1_ingame_action = 2
-        elif current_input_mode == "mouse":
-            mouse_x_abs, mouse_y_abs = pygame.mouse.get_pos()
+        elif current_input_mode == "mouse" and current_game_mode_value == GameSettings.GameMode.PLAYER_VS_AI: # 只在PVA模式下處理滑鼠
+            mouse_x_abs, mouse_y_abs = pygame.mouse.get_pos() # 獲取的是實際螢幕座標
             
-            # ⭐️ 滑鼠座標轉換到遊戲邏輯座標 (0-1)
-            # ⭐️ 這需要 Renderer 提供遊戲區域在螢幕上的實際位置和大小
-            logical_mouse_x = -1 # 預設無效值
+            logical_mouse_x = -1 # 預設為無效值，表示滑鼠不在有效區域或未成功轉換
+
             if hasattr(env, 'renderer') and env.renderer:
-                # 假設 Renderer 有一個方法可以轉換螢幕座標到遊戲邏輯座標
-                # 或者 Renderer 儲存了 game_render_area_on_window 和 scale_factor
-                # 我們需要 env.renderer.game_render_area_on_window 和 env.renderer.scale_factor_for_game
-                # 暫時使用簡化邏輯，假設 Renderer 儲存了這些
-                if hasattr(env.renderer, 'game_render_area_on_window') and hasattr(env.renderer, 'scale_factor_for_game'):
-                    game_rect = env.renderer.game_render_area_on_window # Rect(screen_x, screen_y, scaled_w, scaled_h)
-                    scale = env.renderer.scale_factor_for_game
+                # 獲取 PvA 遊戲區域在螢幕上的實際 Rect 和縮放因子
+                # 我們期望 Renderer 中有 game_area_rect_on_screen (for PvA) 和 game_content_scale_factor
+                
+                actual_game_area_rect = None
+                game_scale = 1.0
 
-                    if game_rect.collidepoint(mouse_x_abs, mouse_y_abs): # 如果滑鼠在遊戲區域內
-                        # 相對於遊戲區域左上角的滑鼠座標 (已縮放的像素)
-                        mouse_x_in_scaled_game_area = mouse_x_abs - game_rect.left
-                        # 轉換回邏輯座標 (0-1)
-                        logical_game_width_unscaled = env.render_size # 遊戲的原始邏輯寬度
-                        logical_mouse_x = mouse_x_in_scaled_game_area / (logical_game_width_unscaled * scale) if (logical_game_width_unscaled * scale) > 0 else 0.5
-                        logical_mouse_x = max(0, min(1, logical_mouse_x)) # 限制在0-1之間
-                else: # Fallback if Renderer attributes not ready (should not happen if Renderer is set up for scaling)
-                    if DEBUG_MAIN_FULLSCREEN: print("[DEBUG_MAIN_FULLSCREEN][game_session] Renderer attributes for mouse scaling not found!")
-                    # 使用舊的、可能不準確的計算方式 (只適用於左上角未縮放的情況)
-                    game_area_x_start = 0
-                    game_area_width_for_mouse = env.render_size
-                    mouse_x_in_game_area = mouse_x_abs - game_area_x_start
-                    logical_mouse_x = mouse_x_in_game_area / game_area_width_for_mouse if game_area_width_for_mouse > 0 else 0.5
+                if hasattr(env.renderer, 'game_area_rect_on_screen'): # PvA 模式下的遊戲區域
+                    actual_game_area_rect = env.renderer.game_area_rect_on_screen
+                else:
+                    if DEBUG_MAIN_FULLSCREEN: print("[DEBUG_MOUSE_CTRL] Renderer missing 'game_area_rect_on_screen' for PvA mouse control.")
+                
+                if hasattr(env.renderer, 'game_content_scale_factor'):
+                    game_scale = env.renderer.game_content_scale_factor
+                elif hasattr(env.renderer, 'scale_factor_for_game'): # 備用名稱
+                    game_scale = env.renderer.scale_factor_for_game
+                else:
+                    if DEBUG_MAIN_FULLSCREEN: print("[DEBUG_MOUSE_CTRL] Renderer missing scale factor for mouse control.")
 
 
-            if logical_mouse_x != -1:
-                threshold = 0.02
-                if logical_mouse_x < env.player1.x - threshold: p1_ingame_action = 0
-                elif logical_mouse_x > env.player1.x + threshold: p1_ingame_action = 2
+                if actual_game_area_rect and game_scale > 0:
+                    if DEBUG_MAIN_FULLSCREEN and pygame.time.get_ticks() % 300 == 0: # 每 5 秒左右打印一次，避免刷屏
+                        print(f"[DEBUG_MOUSE_CTRL] Mouse_Abs: ({mouse_x_abs},{mouse_y_abs}), GameAreaRect: {actual_game_area_rect}, Scale: {game_scale:.2f}")
+
+                    # 1. 檢查滑鼠是否在縮放後的遊戲區域內 (只關心X軸也可以，但Y軸檢查更嚴格)
+                    if actual_game_area_rect.collidepoint(mouse_x_abs, mouse_y_abs):
+                        # 2. 計算滑鼠相對於縮放後遊戲區域左邊界的 X 座標 (像素)
+                        mouse_x_in_scaled_game_area = mouse_x_abs - actual_game_area_rect.left
+                        
+                        # 3. 將此座標轉換回未縮放的邏輯遊戲區域的 X 座標
+                        #    縮放後的遊戲區域寬度是 actual_game_area_rect.width
+                        #    它等於 env.render_size * game_scale
+                        #    所以，mouse_x_in_logical_game_area = mouse_x_in_scaled_game_area / game_scale
+                        mouse_x_in_logical_game_pixels = mouse_x_in_scaled_game_area / game_scale
+                        
+                        # 4. 將邏輯遊戲區域內的像素 X 座標正規化到 0-1
+                        #    env.render_size 是遊戲的邏輯寬度 (例如 400)
+                        if env.render_size > 0:
+                            logical_mouse_x = mouse_x_in_logical_game_pixels / env.render_size
+                        else:
+                            logical_mouse_x = 0.5 # Fallback
+
+                        # 5. 邊界限制
+                        logical_mouse_x = max(0.0, min(1.0, logical_mouse_x))
+
+                        if DEBUG_MAIN_FULLSCREEN and pygame.time.get_ticks() % 300 == 0:
+                             print(f"    MouseInScaledGameAreaX: {mouse_x_in_scaled_game_area}, MouseInLogicalPixelsX: {mouse_x_in_logical_game_pixels:.2f}, LogicalMouseX_0-1: {logical_mouse_x:.3f}")
+                    # else:
+                        # if DEBUG_MAIN_FULLSCREEN and pygame.time.get_ticks() % 300 == 0:
+                        #     print(f"    Mouse ({mouse_x_abs},{mouse_y_abs}) is OUTSIDE GameAreaRect {actual_game_area_rect}")
+
+                else: # Renderer 缺少必要屬性時的 fallback
+                    if DEBUG_MAIN_FULLSCREEN and pygame.time.get_ticks() % 300 == 0:
+                        print("[DEBUG_MOUSE_CTRL] Fallback: Renderer attributes for precise mouse scaling not found. Using potentially inaccurate method.")
+                    # 舊的、可能不準確的計算方式 (只適用於左上角未縮放的特定情況)
+                    # 這裡的 game_area_x_start_on_screen 和 game_area_width_on_screen 需要是實際繪製的區域
+                    # 如果 Renderer 已經居中和縮放了，這些固定值就是錯的
+                    game_area_x_start_on_screen_fallback = 0 # 錯誤的假設
+                    game_area_width_on_screen_fallback = env.render_size # 錯誤的假設
+                    mouse_x_in_game_area_fallback = mouse_x_abs - game_area_x_start_on_screen_fallback
+                    if game_area_width_on_screen_fallback > 0:
+                        logical_mouse_x = mouse_x_in_game_area_fallback / game_area_width_on_screen_fallback
+                        logical_mouse_x = max(0.0, min(1.0, logical_mouse_x))
+                    else:
+                        logical_mouse_x = 0.5
+
+
+            if logical_mouse_x != -1: # 如果成功轉換了座標
+                threshold = 0.02 # 移動閾值 (正規化座標)
+                # 更新球拍動作 (0: left, 1: stay, 2: right)
+                if logical_mouse_x < env.player1.x - threshold:
+                    p1_ingame_action = 0
+                elif logical_mouse_x > env.player1.x + threshold:
+                    p1_ingame_action = 2
+                # else: p1_ingame_action remains 1 (stay)
         
         if keys[P1_GAME_KEYS['SKILL_KB']]:
             if DEBUG_MAIN: print(f"[DEBUG][game_session] P1 skill key '{pygame.key.name(P1_GAME_KEYS['SKILL_KB'])}' pressed.")
