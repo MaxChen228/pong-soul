@@ -39,12 +39,13 @@ ball_behavior:
 theme:
   active_theme_name: "Chinese Traditional" # 您目前活躍的主題
 
-renderer: # 您可以選擇將其放在 gameplay 或 ball_behavior 下，如果覺得更合適
-  visual_spin_multiplier: 80 # 預設視覺旋轉乘數，您可以設定為您想要的值，例如 10, 15, 20 等
-
-# 更多您可以考慮加入的參數:
-# screen:
-#   default_width: 800 # 邏輯寬度 (如果選單等使用固定邏輯尺寸)
-#   default_height: 600 # 邏輯高度
-# performance:
-#   fps_limit: 60
+renderer:
+  visual_spin_multiplier: 80 # 這是我們之前修改旋轉視覺速度時加入的
+  ball_glow:
+    enable: true
+    max_radius_factor: 2   # 光芒最大半徑是球體渲染半徑的幾倍
+    max_spin_reference: 20.0 # 物理旋轉速度參考值 (單位需與您物理引擎中的 ball_spin 一致)
+                             # 當 abs(ball_spin) >= max_spin_reference 時，光芒強度最強
+    color_rgb: [255, 223, 186] # 光芒的RGB顏色 (例如：淡金色 A Light Goldenrod Yellow-like color)
+    min_alpha: 30            # 最小透明度 (0-255)，即使旋轉很慢也有一點微光
+    max_alpha: 150           # 最大透明度 (0-255)，旋轉快時

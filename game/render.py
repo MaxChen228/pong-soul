@@ -1,51 +1,43 @@
-# pong-soul/game/render.py
+# game/render.py
 import math
 import pygame
 from game.theme import Style
-from game.settings import GameSettings
+from game.settings import GameSettings # 確保 GameSettings 已導入
 from utils import resource_path
 from game.skills.skill_config import SKILL_CONFIGS # 用於技能條顏色等
 
-DEBUG_RENDERER = False
+DEBUG_RENDERER = False # 您可以將這些除錯旗標設為 True 來輔助排錯
 DEBUG_RENDERER_FULLSCREEN = False
 
 class Renderer:
-    def __init__(self, 
-                game_mode, 
+    _original_ball_visuals = {} # 將類別屬性移到這裡，確保只初始化一次
+
+    def __init__(self,
+                game_mode,
                 logical_game_area_size,
-                logical_ball_radius_px,
-                logical_paddle_height_px, # 新增：Renderer 需要知道球拍的邏輯高度
-                actual_screen_surface, 
-                actual_screen_width, 
+                logical_ball_radius_px, # 球體本身的邏輯半徑
+                logical_paddle_height_px,
+                actual_screen_surface,
+                actual_screen_width,
                 actual_screen_height):
         if DEBUG_RENDERER: print(f"[Renderer.__init__] Initializing Renderer for game_mode: {game_mode}")
         if DEBUG_RENDERER_FULLSCREEN:
             print(f"[DEBUG_RENDERER_FULLSCREEN][Renderer.__init__] Received actual_screen_surface: {type(actual_screen_surface)}")
             if actual_screen_surface:
                 print(f"    Surface size: {actual_screen_surface.get_size()}, Expected: {actual_screen_width}x{actual_screen_height}")
-        try:
-            self.visual_spin_multiplier = GameSettings.VISUAL_SPIN_MULTIPLIER
-            if DEBUG_RENDERER: print(f"[Renderer.__init__] Visual Spin Multiplier loaded from GameSettings: {self.visual_spin_multiplier}")
-        except AttributeError:
-            if DEBUG_RENDERER: print(f"[Renderer.__init__] WARNING: VISUAL_SPIN_MULTIPLIER not found in GameSettings. Defaulting to 10.")
-            self.visual_spin_multiplier = 10 # 後備的後備值，理論上 GameSettings._fallback_settings 會處理
 
-        # self.env = env # 不再儲存 env 的引用
         self.game_mode = game_mode
-        self.logical_game_area_size = logical_game_area_size # 純遊戲區域的邏輯尺寸 (e.g., 400x400)
-
-        # 儲存球和球拍的邏輯像素尺寸，用於繪圖計算
-        self.logical_ball_radius_px = logical_ball_radius_px
+        self.logical_game_area_size = logical_game_area_size
+        self.logical_ball_radius_px = logical_ball_radius_px # 儲存球的邏輯半徑
         self.logical_paddle_height_px = logical_paddle_height_px
-
 
         if actual_screen_surface:
             self.window = actual_screen_surface
             self.actual_screen_width = actual_screen_width
             self.actual_screen_height = actual_screen_height
-        else: 
+        else:
             if DEBUG_RENDERER_FULLSCREEN: print(f"[DEBUG_RENDERER_FULLSCREEN][Renderer.__init__] No surface! Fallback window (breaks fullscreen).")
-            self.actual_screen_width, self.actual_screen_height = 1000, 700
+            self.actual_screen_width, self.actual_screen_height = 1000, 700 # Fallback
             try:
                 self.window = pygame.display.set_mode((self.actual_screen_width, self.actual_screen_height))
                 pygame.display.set_caption("Pong Soul - Renderer Fallback")
@@ -53,15 +45,15 @@ class Renderer:
                 raise RuntimeError(f"Renderer could not establish a drawing surface: {e}")
 
         if self.game_mode == GameSettings.GameMode.PLAYER_VS_PLAYER:
-            self.logical_pvp_game_area_width_per_viewport = self.logical_game_area_size 
-            self.logical_pvp_viewport_width = 500 
+            self.logical_pvp_game_area_width_per_viewport = self.logical_game_area_size
+            self.logical_pvp_viewport_width = 500
             self.logical_layout_width = self.logical_pvp_viewport_width * 2
-            self.logical_pvp_game_area_height = self.logical_game_area_size 
-            self.logical_pvp_shared_ui_height = 100 
+            self.logical_pvp_game_area_height = self.logical_game_area_size
+            self.logical_pvp_shared_ui_height = 100
             self.logical_layout_height = self.logical_pvp_game_area_height + self.logical_pvp_shared_ui_height
         else: # PvA
-            self.logical_layout_width = self.logical_game_area_size 
-            self.logical_pva_ui_bar_height = 100 
+            self.logical_layout_width = self.logical_game_area_size
+            self.logical_pva_ui_bar_height = 100
             self.logical_layout_height = self.logical_game_area_size + 2 * self.logical_pva_ui_bar_height
 
         if DEBUG_RENDERER_FULLSCREEN:
@@ -71,7 +63,7 @@ class Renderer:
 
         scale_x = self.actual_screen_width / self.logical_layout_width
         scale_y = self.actual_screen_height / self.logical_layout_height
-        self.game_content_scale_factor = min(scale_x, scale_y) 
+        self.game_content_scale_factor = min(scale_x, scale_y)
         self.scaled_layout_width = int(self.logical_layout_width * self.game_content_scale_factor)
         self.scaled_layout_height = int(self.logical_layout_height * self.game_content_scale_factor)
         self.layout_offset_x = (self.actual_screen_width - self.scaled_layout_width) // 2
@@ -80,7 +72,7 @@ class Renderer:
             self.layout_offset_x, self.layout_offset_y,
             self.scaled_layout_width, self.scaled_layout_height
         )
-        self.scale_factor_for_game = self.game_content_scale_factor 
+        self.scale_factor_for_game = self.game_content_scale_factor
 
         if DEBUG_RENDERER_FULLSCREEN:
             print(f"[DEBUG_RENDERER_FULLSCREEN][Renderer.__init__] Game Content Scaling:")
@@ -89,44 +81,37 @@ class Renderer:
             print(f"    Layout Offset (Centering): ({self.layout_offset_x}, {self.layout_offset_y})")
             print(f"    Game Content Render Area on Screen: {self.game_content_render_area_on_screen}")
 
-        s = self.game_content_scale_factor 
+        s = self.game_content_scale_factor
         area_left = self.game_content_render_area_on_screen.left
         area_top = self.game_content_render_area_on_screen.top
 
         if self.game_mode == GameSettings.GameMode.PLAYER_VS_PLAYER:
             scaled_pvp_viewport_width = int(self.logical_pvp_viewport_width * s)
-            scaled_pvp_game_area_height = int(self.logical_pvp_game_area_height * s) 
+            scaled_pvp_game_area_height = int(self.logical_pvp_game_area_height * s)
             scaled_pvp_shared_ui_height = int(self.logical_pvp_shared_ui_height * s)
             vp1_left = area_left
             vp1_top = area_top
-            self.viewport1_game_area_on_screen = pygame.Rect( 
-                vp1_left + (scaled_pvp_viewport_width - int(self.logical_game_area_size * s)) // 2, 
-                vp1_top,  
-                int(self.logical_game_area_size * s),     
-                scaled_pvp_game_area_height               
+            self.viewport1_game_area_on_screen = pygame.Rect(
+                vp1_left + (scaled_pvp_viewport_width - int(self.logical_game_area_size * s)) // 2,
+                vp1_top,
+                int(self.logical_game_area_size * s),
+                scaled_pvp_game_area_height
             )
             vp2_left = area_left + scaled_pvp_viewport_width
             vp2_top = area_top
-            self.viewport2_game_area_on_screen = pygame.Rect( 
+            self.viewport2_game_area_on_screen = pygame.Rect(
                 vp2_left + (scaled_pvp_viewport_width - int(self.logical_game_area_size * s)) // 2,
                 vp2_top,
                 int(self.logical_game_area_size * s),
                 scaled_pvp_game_area_height
             )
             self.pvp_shared_bottom_ui_rect_on_screen = pygame.Rect(
-                area_left, 
-                area_top + scaled_pvp_game_area_height, 
-                self.scaled_layout_width, 
+                area_left,
+                area_top + scaled_pvp_game_area_height,
+                self.scaled_layout_width,
                 scaled_pvp_shared_ui_height
             )
-            self.offset_y = 0 
-
-            if DEBUG_RENDERER_FULLSCREEN:
-                print(f"    PvP Scaled Viewport Width (each): {scaled_pvp_viewport_width}")
-                print(f"    PvP Scaled Game Area Height (in viewport): {scaled_pvp_game_area_height}")
-                print(f"    P1 Game Area on Screen: {self.viewport1_game_area_on_screen}")
-                print(f"    P2 Game Area on Screen: {self.viewport2_game_area_on_screen}")
-                print(f"    PvP Scaled Shared UI Rect on Screen: {self.pvp_shared_bottom_ui_rect_on_screen}")
+            self.offset_y = 0 # PvP specific offset if needed, usually for top elements not present here
         else: # PvA
             scaled_pva_ui_bar_height = int(self.logical_pva_ui_bar_height * s)
             scaled_logical_game_area_size = int(self.logical_game_area_size * s)
@@ -134,81 +119,78 @@ class Renderer:
                 area_left, area_top,
                 self.scaled_layout_width, scaled_pva_ui_bar_height
             )
-            self.game_area_rect_on_screen = pygame.Rect( 
-                area_left, 
-                area_top + scaled_pva_ui_bar_height, 
-                scaled_logical_game_area_size, 
-                scaled_logical_game_area_size  
+            self.game_area_rect_on_screen = pygame.Rect(
+                area_left,
+                area_top + scaled_pva_ui_bar_height,
+                scaled_logical_game_area_size,
+                scaled_logical_game_area_size
             )
             self.pva_bottom_ui_rect_on_screen = pygame.Rect(
                 area_left, area_top + scaled_pva_ui_bar_height + scaled_logical_game_area_size,
                 self.scaled_layout_width, scaled_pva_ui_bar_height
             )
-            self.offset_y = scaled_pva_ui_bar_height 
-
-            if DEBUG_RENDERER_FULLSCREEN:
-                print(f"    PvA Scaled UI Bar Height: {scaled_pva_ui_bar_height}")
-                print(f"    PvA Scaled Game Area Size: {scaled_logical_game_area_size}x{scaled_logical_game_area_size}")
-                print(f"    PvA Top UI Rect on Screen: {self.pva_top_ui_rect_on_screen}")
-                print(f"    PvA Game Area Rect on Screen: {self.game_area_rect_on_screen}")
-                print(f"    PvA Bottom UI Rect on Screen: {self.pva_bottom_ui_rect_on_screen}")
-                print(f"    PvA self.offset_y (scaled top bar for skills): {self.offset_y}")
+            self.offset_y = scaled_pva_ui_bar_height # PvA specific offset
 
         self.clock = pygame.time.Clock()
-        try:
-            if not hasattr(Renderer, '_original_ball_visuals'):
-                Renderer._original_ball_visuals = {}
-                try:
-                    Renderer._original_ball_visuals["default"] = pygame.image.load(resource_path("assets/sunglasses.png")).convert_alpha()
-                    if DEBUG_RENDERER: print(f"[Renderer.__init__] Loaded 'default' ball image.")
-                except Exception as e_default:
-                    if DEBUG_RENDERER: print(f"[Renderer.__init__] Error loading 'default' ball image: {e_default}. Creating fallback.")
-                    fb_surf_def = pygame.Surface((40, 40), pygame.SRCALPHA) # 假設基礎邏輯尺寸
-                    pygame.draw.circle(fb_surf_def, (255, 255, 255), (20, 20), 20)
-                    Renderer._original_ball_visuals["default"] = fb_surf_def
 
-                try:
-                    # 假設蟲子圖像的邏輯尺寸與預設球類似，或者 SoulEaterBugSkill 的配置中有其基礎尺寸
-                    # 為了簡化，我們這裡假設蟲子圖像的原始檔案適合直接縮放
-                    # SoulEaterBugSkill 的 config 中有 bug_image_path 和 bug_display_scale_factor
-                    # Renderer 不應該知道 skill_config，所以這裡我們先用一個固定的 bug 圖像
-                    # 或者，更好的方法是技能在 get_visual_params 時提供其圖像的 surface
-                    # 但這又回到了傳遞 surface 的問題。
-                    # 折衷：Renderer 知道 "soul_eater_bug" 這個 key，並嘗試載入對應資源。
-                    bug_cfg = SKILL_CONFIGS.get("soul_eater_bug", {})
-                    bug_img_path = bug_cfg.get("bug_image_path", "assets/soul_eater_bug.png") # 從 skill_config 取路徑
-                    Renderer._original_ball_visuals["soul_eater_bug"] = pygame.image.load(resource_path(bug_img_path)).convert_alpha()
-                    if DEBUG_RENDERER: print(f"[Renderer.__init__] Loaded 'soul_eater_bug' ball image from {bug_img_path}.")
-                except Exception as e_bug:
-                    if DEBUG_RENDERER: print(f"[Renderer.__init__] Error loading 'soul_eater_bug' image: {e_bug}. Creating fallback.")
-                    fb_surf_bug = pygame.Surface((50, 50), pygame.SRCALPHA) # 假設蟲子稍大
-                    pygame.draw.ellipse(fb_surf_bug, (100, 0, 100), fb_surf_bug.get_rect()) # 紫色蟲
-                    Renderer._original_ball_visuals["soul_eater_bug"] = fb_surf_bug
-
-            # self.ball_image 將在 render 時根據 image_key 動態選擇和縮放，不再是固定的單一圖像
-            # 但是，Renderer 需要一個預設的 self.ball_image 以防萬一，或者在 render 時處理 image_key 不存在的情況
-            # 我們將在 render 時處理圖像的選擇和縮放。
-            # scaled_ball_diameter_px 仍然有用，用於計算縮放後的尺寸。
-            self.scaled_ball_diameter_px = int(self.logical_ball_radius_px * 2 * self.game_content_scale_factor)
-            if self.scaled_ball_diameter_px <= 0: self.scaled_ball_diameter_px = max(1, int(20 * self.game_content_scale_factor))
-
-            if DEBUG_RENDERER_FULLSCREEN:
-                print(f"[DEBUG_RENDERER_FULLSCREEN][Renderer.__init__] Expected scaled ball diameter: {self.scaled_ball_diameter_px}px")
-
-        except Exception as e: # 這個 try-except 塊是外層的，處理上面所有圖像載入的通用錯誤
-            if DEBUG_RENDERER: print(f"[Renderer.__init__] General error during ball image preparation: {e}")
-            # 確保 self.scaled_ball_diameter_px 有值
-            if not hasattr(self, 'scaled_ball_diameter_px') or self.scaled_ball_diameter_px <= 0:
-                self.scaled_ball_diameter_px = max(1, int(20 * self.game_content_scale_factor))
-            # 確保 _original_ball_visuals["default"] 至少有一個備用圖像
-            if not hasattr(Renderer, '_original_ball_visuals') or "default" not in Renderer._original_ball_visuals:
-                if not hasattr(Renderer, '_original_ball_visuals'): Renderer._original_ball_visuals = {}
+        # 初始化球體圖像資源 (只執行一次)
+        if not Renderer._original_ball_visuals: # Check if empty
+            try:
+                Renderer._original_ball_visuals["default"] = pygame.image.load(resource_path("assets/sunglasses.png")).convert_alpha()
+                if DEBUG_RENDERER: print(f"[Renderer.__init__] Loaded 'default' ball image.")
+            except Exception as e_default:
+                if DEBUG_RENDERER: print(f"[Renderer.__init__] Error loading 'default' ball image: {e_default}. Creating fallback.")
                 fb_surf_def = pygame.Surface((40, 40), pygame.SRCALPHA)
                 pygame.draw.circle(fb_surf_def, (255, 255, 255), (20, 20), 20)
                 Renderer._original_ball_visuals["default"] = fb_surf_def
 
-        self.ball_angle = 0 # 球的旋轉角度由 Renderer 維護
-        self.skill_glow_position = 0; self.skill_glow_trail = []; self.max_skill_glow_trail_length = 15
+            try:
+                bug_cfg = SKILL_CONFIGS.get("soul_eater_bug", {})
+                bug_img_path = bug_cfg.get("bug_image_path", "assets/soul_eater_bug.png")
+                Renderer._original_ball_visuals["soul_eater_bug"] = pygame.image.load(resource_path(bug_img_path)).convert_alpha()
+                if DEBUG_RENDERER: print(f"[Renderer.__init__] Loaded 'soul_eater_bug' ball image from {bug_img_path}.")
+            except Exception as e_bug:
+                if DEBUG_RENDERER: print(f"[Renderer.__init__] Error loading 'soul_eater_bug' image: {e_bug}. Creating fallback.")
+                fb_surf_bug = pygame.Surface((50, 50), pygame.SRCALPHA)
+                pygame.draw.ellipse(fb_surf_bug, (100, 0, 100), fb_surf_bug.get_rect())
+                Renderer._original_ball_visuals["soul_eater_bug"] = fb_surf_bug
+
+        self.scaled_ball_diameter_px = int(self.logical_ball_radius_px * 2 * self.game_content_scale_factor)
+        if self.scaled_ball_diameter_px <= 0:
+            self.scaled_ball_diameter_px = max(1, int(20 * self.game_content_scale_factor)) # Fallback diameter
+
+        if DEBUG_RENDERER_FULLSCREEN:
+            print(f"[DEBUG_RENDERER_FULLSCREEN][Renderer.__init__] Expected scaled ball diameter: {self.scaled_ball_diameter_px}px")
+
+        self.ball_angle = 0 # 累積的視覺渲染角度 (在 render 方法中更新)
+        try:
+            self.visual_spin_multiplier = GameSettings.VISUAL_SPIN_MULTIPLIER
+            if DEBUG_RENDERER: print(f"[Renderer.__init__] Visual Spin Multiplier loaded from GameSettings: {self.visual_spin_multiplier}")
+        except AttributeError: # Fallback if GameSettings hasn't loaded it for some reason
+            if DEBUG_RENDERER: print(f"[Renderer.__init__] WARNING: VISUAL_SPIN_MULTIPLIER not found in GameSettings. Defaulting to 10.")
+            self.visual_spin_multiplier = 10
+
+
+        # --- 新增：讀取球體光芒設定 ---
+        try:
+            self.ball_glow_enable = GameSettings.BALL_GLOW_ENABLE
+            if self.ball_glow_enable:
+                self.ball_glow_max_radius_factor = GameSettings.BALL_GLOW_MAX_RADIUS_FACTOR
+                self.ball_glow_max_spin_ref = GameSettings.BALL_GLOW_MAX_SPIN_REF
+                self.ball_glow_color_rgb = tuple(GameSettings.BALL_GLOW_COLOR_RGB) # 確保是元組
+                self.ball_glow_min_alpha = GameSettings.BALL_GLOW_MIN_ALPHA
+                self.ball_glow_max_alpha = GameSettings.BALL_GLOW_MAX_ALPHA
+                if DEBUG_RENDERER:
+                    print(f"[Renderer.__init__] Ball Glow Enabled. Factor: {self.ball_glow_max_radius_factor}, SpinRef: {self.ball_glow_max_spin_ref}, Color: {self.ball_glow_color_rgb}, AlphaRange: ({self.ball_glow_min_alpha}-{self.ball_glow_max_alpha})")
+            elif DEBUG_RENDERER:
+                print(f"[Renderer.__init__] Ball Glow Disabled by GameSettings.")
+        except AttributeError as e: # 如果 GameSettings 中缺少這些鍵
+            if DEBUG_RENDERER: print(f"[Renderer.__init__] WARNING: Ball glow settings not found in GameSettings ({e}). Disabling glow.")
+            self.ball_glow_enable = False
+        # --- 球體光芒設定讀取完畢 ---
+
+        self.skill_glow_position = 0; self.skill_glow_trail = []; self.max_skill_glow_trail_length = 15 # 這是技能相關的，與球體光芒不同
+        if DEBUG_RENDERER: print("[Renderer.__init__] Renderer initialization complete with scaling parameters.")
 
 
     def _draw_walls(self, target_surface, game_area_on_surface_rect, color=(100,100,100)):
@@ -333,25 +315,26 @@ class Renderer:
                             pygame.draw.arc(target_surface, clock_color_rgba, arc_rect,
                                             start_angle_rad, end_angle_rad, scaled_clock_line_width)
     def _render_player_view(self,
-                            target_surface_for_view, 
-                            view_player_data, 
-                            opponent_data_for_this_view, 
-                            ball_data, 
-                            trail_data, 
-                            paddle_height_norm, # 正規化球拍高度 (來自 env.get_render_data)
-                            # ball_spin, # spin 已經在 ball_data 中
-                            game_render_area_on_target, 
-                            is_top_player_perspective=False):
+                            target_surface_for_view,
+                            view_player_data,
+                            opponent_data_for_this_view,
+                            ball_data, # 包含 "spin" 和 "radius_norm" (球本身的正規化半徑)
+                            trail_data,
+                            paddle_height_norm,
+                            game_render_area_on_target,
+                            is_top_player_perspective=False,
+                            current_frame_ball_render_angle=0): # 來自 render() 方法的當前幀旋轉角度
 
-        s = self.game_content_scale_factor 
+        s = self.game_content_scale_factor # 遊戲內容的縮放因子
         ga_left = game_render_area_on_target.left
         ga_top = game_render_area_on_target.top
         ga_width_scaled = game_render_area_on_target.width
         ga_height_scaled = game_render_area_on_target.height
 
+        # 繪製牆壁 (假設您有這個輔助方法)
         self._draw_walls(target_surface_for_view, game_render_area_on_target)
 
-        # --- 技能視覺效果渲染 ---
+        # 繪製技能相關視覺 (例如 SlowMo 的衝擊波，如果存在)
         skill_data = view_player_data.get("skill_data")
         if skill_data:
             skill_visual_params = skill_data.get("visual_params")
@@ -359,34 +342,34 @@ class Renderer:
                 skill_type = skill_visual_params.get("type")
                 if skill_type == "slowmo":
                     self._draw_slowmo_visuals(target_surface_for_view, skill_visual_params, game_render_area_on_target, view_player_data)
-                # elif skill_type == "soul_eater_bug":
-                    # 如果 SoulEaterBug 有除了改變球以外的特效，在這裡處理
-                    # pass 
-                # ... 可以添加其他技能類型的繪製邏輯 ...
-        # --- 技能視覺效果渲染結束 ---
+                # ... 其他技能的特定視覺 ...
 
         try:
             ball_norm_x = ball_data["x_norm"]
-            ball_norm_y_raw = ball_data["y_norm"]
-            ball_spin = ball_data["spin"] # 從 ball_data 獲取 spin
-            ball_image_key = ball_data.get("image_key", "default") # 從 ball_data 獲取 image_key
+            ball_norm_y_raw = ball_data["y_norm"] # 原始的物理Y座標
+            ball_physics_spin = ball_data.get("spin", 0) # 獲取物理旋轉值
+            ball_image_key = ball_data.get("image_key", "default")
+            # 球本身的正規化半徑，來自 env.get_render_data()
+            # ball_actual_radius_norm = ball_data.get("radius_norm", self.logical_ball_radius_px / self.logical_game_area_size)
 
+            # 根據視角調整球的Y座標繪製位置
             ball_norm_y_for_view = 1.0 - ball_norm_y_raw if is_top_player_perspective else ball_norm_y_raw
 
-            ball_center_x_scaled = ga_left + int(ball_norm_x * ga_width_scaled)
-            ball_center_y_scaled = ga_top + int(ball_norm_y_for_view * ga_height_scaled)
+            ball_center_x_scaled_px = ga_left + int(ball_norm_x * ga_width_scaled) # 球心在目標 surface 上的 X 像素座標
+            ball_center_y_scaled_px = ga_top + int(ball_norm_y_for_view * ga_height_scaled) # 球心在目標 surface 上的 Y 像素座標
 
+            # --- 繪製球拍 (view player 和 opponent player) ---
+            # (這部分程式碼保持不變，所以省略以節省篇幅，但它應該在這裡)
+            # ... 您繪製 vp_paddle 和 opp_paddle 的程式碼 ...
             vp_paddle_norm_x = view_player_data["x_norm"]
             vp_paddle_center_x_scaled = ga_left + int(vp_paddle_norm_x * ga_width_scaled)
-            # 球拍寬度 paddle_width_norm 是相對於 logical_game_area_size 的
-            vp_paddle_width_scaled = int(view_player_data["paddle_width_norm"] * self.logical_game_area_size * s) 
-            vp_paddle_height_scaled = int(self.logical_paddle_height_px * s) 
-            vp_paddle_color = view_player_data.get("paddle_color", Style.PLAYER_COLOR) 
+            vp_paddle_width_scaled = int(view_player_data["paddle_width_norm"] * self.logical_game_area_size * s)
+            vp_paddle_height_scaled = int(self.logical_paddle_height_px * s)
+            vp_paddle_color = view_player_data.get("paddle_color", Style.PLAYER_COLOR)
             scaled_paddle_border_radius = max(1, int(3 * s))
-
             pygame.draw.rect(target_surface_for_view, vp_paddle_color,
                 (vp_paddle_center_x_scaled - vp_paddle_width_scaled // 2,
-                ga_top + ga_height_scaled - vp_paddle_height_scaled, 
+                ga_top + ga_height_scaled - vp_paddle_height_scaled,
                 vp_paddle_width_scaled, vp_paddle_height_scaled), border_radius=scaled_paddle_border_radius)
 
             opp_paddle_norm_x = opponent_data_for_this_view["x_norm"]
@@ -394,14 +377,16 @@ class Renderer:
             opp_paddle_width_scaled = int(opponent_data_for_this_view["paddle_width_norm"] * self.logical_game_area_size * s)
             opp_paddle_height_scaled = int(self.logical_paddle_height_px * s)
             opp_paddle_color = opponent_data_for_this_view.get("paddle_color", Style.AI_COLOR)
-
             pygame.draw.rect(target_surface_for_view, opp_paddle_color,
                 (opp_paddle_center_x_scaled - opp_paddle_width_scaled // 2,
-                ga_top, 
+                ga_top,
                 opp_paddle_width_scaled, opp_paddle_height_scaled), border_radius=scaled_paddle_border_radius)
 
+
+            # --- 繪製拖尾 (如果有的話) ---
+            # (這部分程式碼保持不變，所以省略，但它應該在這裡)
             if trail_data:
-                scaled_trail_radius = max(1, int(self.logical_ball_radius_px * 0.4 * s)) 
+                scaled_trail_radius = max(1, int(self.logical_ball_radius_px * 0.4 * s))
                 for i, (tx_norm, ty_norm_raw) in enumerate(trail_data):
                     trail_ty_norm_for_view = 1.0 - ty_norm_raw if is_top_player_perspective else ty_norm_raw
                     fade = int(200 * (i + 1) / len(trail_data))
@@ -414,17 +399,62 @@ class Renderer:
                     trail_x_scaled = ga_left + int(tx_norm * ga_width_scaled)
                     trail_y_scaled = ga_top + int(trail_ty_norm_for_view * ga_height_scaled)
                     target_surface_for_view.blit(temp_surf, (trail_x_scaled - scaled_trail_radius, trail_y_scaled - scaled_trail_radius))
-            
-            # --- 選擇並縮放球的圖像 ---
-            original_ball_surf = Renderer._original_ball_visuals.get(ball_image_key, Renderer._original_ball_visuals["default"])
+
+
+            # --- ⭐新增：繪製球體光芒 (在球體圖像之前) ⭐---
+            if hasattr(self, 'ball_glow_enable') and self.ball_glow_enable: # 檢查屬性是否存在且啟用
+                spin_intensity_ratio = 0.0
+                if self.ball_glow_max_spin_ref > 1e-6: # 避免除以零或非常小的值
+                    spin_intensity_ratio = min(1.0, abs(ball_physics_spin) / self.ball_glow_max_spin_ref)
+
+                current_glow_alpha = int(self.ball_glow_min_alpha + (self.ball_glow_max_alpha - self.ball_glow_min_alpha) * spin_intensity_ratio)
+                current_glow_alpha = max(0, min(255, current_glow_alpha))
+
+                # 球的實際渲染半徑 (像素)
+                actual_ball_radius_px = self.scaled_ball_diameter_px / 2.0
+
+                # 光芒半徑基於球的實際渲染半徑和強度
+                # 最小光芒是球半徑，最大光芒是 球半徑 * factor
+                min_glow_radius_px_abs = actual_ball_radius_px # 最小光芒與球一樣大或稍大
+                max_glow_radius_px_abs = actual_ball_radius_px * self.ball_glow_max_radius_factor
+                current_glow_radius_px = int(min_glow_radius_px_abs + (max_glow_radius_px_abs - min_glow_radius_px_abs) * spin_intensity_ratio)
+
+                if current_glow_alpha > 5 and current_glow_radius_px > actual_ball_radius_px * 0.5 : # 只有當光芒有一定效果時才繪製
+                    glow_color_rgba = (*self.ball_glow_color_rgb, current_glow_alpha)
+
+                    temp_glow_surface_size = int(current_glow_radius_px * 2)
+                    if temp_glow_surface_size > 0:
+                        temp_glow_surface = pygame.Surface((temp_glow_surface_size, temp_glow_surface_size), pygame.SRCALPHA)
+
+                        # 在臨時 surface 的中心繪製圓形光芒
+                        # 使用 pygame.gfxdraw 可以得到更平滑的圓形，但會稍微複雜一點
+                        # pygame.gfxdraw.filled_circle(temp_glow_surface, current_glow_radius_px, current_glow_radius_px, current_glow_radius_px, glow_color_rgba)
+                        # pygame.gfxdraw.aacircle(temp_glow_surface, current_glow_radius_px, current_glow_radius_px, current_glow_radius_px, glow_color_rgba) # 抗鋸齒邊緣
+                        pygame.draw.circle(temp_glow_surface, glow_color_rgba,
+                                           (current_glow_radius_px, current_glow_radius_px),
+                                           current_glow_radius_px)
+
+                        glow_blit_x = ball_center_x_scaled_px - current_glow_radius_px
+                        glow_blit_y = ball_center_y_scaled_px - current_glow_radius_px
+                        target_surface_for_view.blit(temp_glow_surface, (glow_blit_x, glow_blit_y), special_flags=pygame.BLEND_RGBA_ADD)
+            # --- ⭐球體光芒繪製結束⭐ ---
+
+            # --- 繪製旋轉後的球體圖像 (在光芒之後) ---
+            original_ball_surf = Renderer._original_ball_visuals.get(ball_image_key, Renderer._original_ball_visuals.get("default")) # 確保有 default
+            if original_ball_surf is None: # 極端情況下的後備
+                if DEBUG_RENDERER: print(f"[Renderer._render_player_view] CRITICAL: Ball image for key '{ball_image_key}' AND 'default' are None!")
+                original_ball_surf = pygame.Surface((self.scaled_ball_diameter_px, self.scaled_ball_diameter_px), pygame.SRCALPHA)
+                pygame.draw.circle(original_ball_surf, (255,0,255), (self.scaled_ball_diameter_px//2, self.scaled_ball_diameter_px//2), self.scaled_ball_diameter_px//2)
+
+
             current_ball_render_image_scaled = pygame.transform.smoothscale(original_ball_surf, (self.scaled_ball_diameter_px, self.scaled_ball_diameter_px))
-            # --- 球圖像選擇結束 ---
 
-            spin_for_this_view = -ball_spin if is_top_player_perspective else ball_spin
-            self.ball_angle = (self.ball_angle + spin_for_this_view * self.visual_spin_multiplier) % 360
+            # 根據我們上一輪的討論，current_frame_ball_render_angle 是「世界」角度
+            # 而 is_top_player_perspective 決定是否反轉這個角度以匹配翻轉的視角
+            angle_to_render = -current_frame_ball_render_angle if is_top_player_perspective else current_frame_ball_render_angle
 
-            rotated_ball = pygame.transform.rotate(current_ball_render_image_scaled, self.ball_angle)
-            ball_rect = rotated_ball.get_rect(center=(ball_center_x_scaled, ball_center_y_scaled))
+            rotated_ball = pygame.transform.rotate(current_ball_render_image_scaled, angle_to_render)
+            ball_rect = rotated_ball.get_rect(center=(ball_center_x_scaled_px, ball_center_y_scaled_px))
             target_surface_for_view.blit(rotated_ball, ball_rect)
 
         except Exception as e:
@@ -432,50 +462,56 @@ class Renderer:
             if DEBUG_RENDERER: print(f"[Renderer._render_player_view] ({player_id_for_debug}) drawing error: {e}")
             import traceback; traceback.print_exc()
 
-
-    def render(self, render_data): # 接收 render_data
-        if not self.window: return # 如果沒有繪圖表面，則不執行任何操作
-
-        # 從 render_data 中獲取 freeze_active 狀態
-        freeze_active = render_data.get("freeze_active", False)
+    # render 方法保持我們上一輪修復後的版本，它會在每幀開始時更新 self.ball_angle,
+    # 並將 self.ball_angle 作為 current_frame_ball_render_angle 傳遞給 _render_player_view。
+    # 以下是 render 方法的相關部分，確保它與上一輪的修改一致：
+    def render(self, render_data):
+        if not self.window: return
 
         current_bg_color = Style.BACKGROUND_COLOR
+        freeze_active = render_data.get("freeze_active", False)
         if freeze_active:
-            # 背景閃爍效果
-            current_time_ticks = pygame.time.get_ticks() # 需要 pygame.time.get_ticks()
+            current_time_ticks = pygame.time.get_ticks()
             current_bg_color = (200,200,200) if (current_time_ticks // 150) % 2 == 0 else (50,50,50)
-        self.window.fill(current_bg_color) 
+        self.window.fill(current_bg_color)
 
         bg_r, bg_g, bg_b = Style.BACKGROUND_COLOR[:3] if isinstance(Style.BACKGROUND_COLOR, tuple) and len(Style.BACKGROUND_COLOR) >=3 else (0,0,0)
         ui_overlay_color = tuple(max(0, c - 20) for c in (bg_r, bg_g, bg_b))
 
+
         player1_data = render_data["player1"]
         opponent_data = render_data["opponent"]
+        ball_physics_spin = render_data["ball"].get("spin", 0)
+
+        # 每幀只更新一次 self.ball_angle (累積的視覺旋轉角度)
+        self.ball_angle = (self.ball_angle + ball_physics_spin * self.visual_spin_multiplier) % 360
+        current_ball_visual_angle_for_frame = self.ball_angle
+
 
         if self.game_mode == GameSettings.GameMode.PLAYER_VS_PLAYER:
             self._render_player_view(
-                self.window, 
-                player1_data, # 傳遞 player1 的數據包
-                opponent_data, # 傳遞 opponent 的數據包
-                render_data["ball"], # 傳遞球的數據包
-                render_data["trail"], # 傳遞拖尾數據
-                render_data["paddle_height_norm"], # 傳遞正規化球拍高度
-                self.viewport1_game_area_on_screen, 
-                is_top_player_perspective=False
-            )
-            self._render_player_view(
-                self.window, 
-                opponent_data, # 現在 opponent 是視角主角
-                player1_data,  # player1 是這個視角的對手
+                self.window,
+                player1_data,
+                opponent_data,
                 render_data["ball"],
                 render_data["trail"],
                 render_data["paddle_height_norm"],
-                self.viewport2_game_area_on_screen, 
-                is_top_player_perspective=True # 對手 P2 在其視角是底部，但其世界座標是上方，所以球的Y需要反轉
+                self.viewport1_game_area_on_screen,
+                is_top_player_perspective=False,
+                current_frame_ball_render_angle=current_ball_visual_angle_for_frame
             )
-
+            self._render_player_view(
+                self.window,
+                opponent_data,
+                player1_data,
+                render_data["ball"],
+                render_data["trail"],
+                render_data["paddle_height_norm"],
+                self.viewport2_game_area_on_screen,
+                is_top_player_perspective=True,
+                current_frame_ball_render_angle=current_ball_visual_angle_for_frame
+            )
             self._render_pvp_bottom_ui(self.window, player1_data, opponent_data, self.pvp_shared_bottom_ui_rect_on_screen)
-
             scaled_divider_thickness = max(1, int(2 * self.game_content_scale_factor))
             divider_x_abs = self.viewport1_game_area_on_screen.right + (self.viewport2_game_area_on_screen.left - self.viewport1_game_area_on_screen.right) // 2
             pygame.draw.line(self.window, (80,80,80),
@@ -485,42 +521,24 @@ class Renderer:
         else: # PvA
             pygame.draw.rect(self.window, ui_overlay_color, self.pva_top_ui_rect_on_screen)
             pygame.draw.rect(self.window, ui_overlay_color, self.pva_bottom_ui_rect_on_screen)
-
             self._render_player_view(
-                self.window, 
-                player1_data, 
-                opponent_data, 
+                self.window,
+                player1_data,
+                opponent_data,
                 render_data["ball"],
                 render_data["trail"],
                 render_data["paddle_height_norm"],
-                self.game_area_rect_on_screen, 
-                is_top_player_perspective=False
+                self.game_area_rect_on_screen,
+                is_top_player_perspective=False,
+                current_frame_ball_render_angle=current_ball_visual_angle_for_frame
             )
-
             self._render_health_bar_for_pva(player1_data, is_opponent=False)
             self._render_health_bar_for_pva(opponent_data, is_opponent=True)
-            # 技能UI現在依賴 player_data 中的 skill_data
             self._render_skill_ui_for_pva(player1_data)
-
-        # 技能的自訂渲染 (例如 SlowMoSkill 的衝擊波、時鐘等)
-        # 這部分仍然需要 Renderer 能夠訪問技能實例，或者技能的視覺參數被包含在 render_data 中
-        # 目前我們的 render_data 包含了 skill_data (code_name, is_active, energy_ratio, cooldown_seconds)
-        # 但還沒有包含像 SlowMoSkill 這樣的技能的詳細視覺參數 (shockwaves, trail_positions)。
-        # 我們需要決定這些參數是由 skill_instance.render() 自己畫，還是由 Env 收集後交給 Renderer 畫。
-        # 暫時保留技能的 render 方法在 _render_player_view 中被調用，但它需要從 playerX_data 中獲取 skill_instance。
-        # 這意味著 PlayerState 的 skill_instance 需要被正確傳遞。
-        # 在 PongDuelEnv.get_render_data 中，我們已經將 skill_instance 包含在 playerX_skill_data 中 (雖然被註解掉了)
-        # 為了讓技能的 render 繼續工作，PongDuelEnv.get_render_data 需要傳遞 skill_instance，
-        # 或者 Renderer._render_player_view 中不再調用 skill_instance.render()，而是從 render_data 提取技能視覺參數。
-
-        # 為了簡化此步驟，我們假設技能的 .render() 方法暫時仍由 _render_player_view 內部處理，
-        # _render_player_view 會從傳入的 player_state_data 中獲取 skill_instance (如果存在)。
-        # 所以，PongDuelEnv.get_render_data() 中的 player1_skill_data 和 opponent_skill_data 應該包含 skill_instance 本身。
-        # (回顧 PongDuelEnv.get_render_data，它目前沒有傳遞 skill_instance，這需要修正)
 
         pygame.display.flip()
         self.clock.tick(60)
-
+        
     def _render_pvp_bottom_ui(self, target_surface, player1_data, player2_data, scaled_ui_rect):
         s = self.game_content_scale_factor
         ui_bg_color = Style.UI_BACKGROUND_COLOR if hasattr(Style, 'UI_BACKGROUND_COLOR') else (30,30,30)
