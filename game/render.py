@@ -231,17 +231,51 @@ class Renderer:
         self._draw_walls(target_surface_for_view, game_render_area_on_target)
 
         # 2. 技能渲染
-        if view_player_state.skill_instance:
+        if view_player_state.skill_instance: # view_player_state 是當前視角的主角
             skill_should_render = view_player_state.skill_instance.is_active() or \
                                   (hasattr(view_player_state.skill_instance, 'fadeout_active') and view_player_state.skill_instance.fadeout_active) or \
                                   (hasattr(view_player_state.skill_instance, 'fog_active') and view_player_state.skill_instance.fog_active)
+            
             if skill_should_render:
-                # ⭐️ 技能渲染也需要知道縮放因子和其遊戲區域的實際繪圖位置
-                # ⭐️ 理想情況：skill.render(target_surface_for_view, game_render_area_on_target, s)
-                # ⭐️ SlowMoSkill 的 render 方法需要修改以接收並使用這些參數
-                if hasattr(view_player_state.skill_instance, 'set_render_context'): # 如果技能有這個方法
-                     view_player_state.skill_instance.set_render_context(game_render_area_on_target, s, self.offset_y) # self.offset_y 是縮放後的頂部UI高度(PvA)
-                view_player_state.skill_instance.render(target_surface_for_view)
+                # ⭐️ 判斷 is_owner_bottom_perspective_in_this_area
+                # view_player_state 是當前視角的主角 (在該視角中，他總是在底部)
+                # skill_instance.owner 是技能的實際擁有者
+                # 我們只在技能擁有者自己的視口中渲染其技能效果
+                
+                # is_rendering_for_skill_owner = (view_player_state == view_player_state.skill_instance.owner)
+                # is_this_area_bottom_perspective_for_skill_owner = False
+                # if is_rendering_for_skill_owner:
+                #     # 如果是 P1 的技能在 P1 的視口渲染，P1是底部
+                #     # 如果是 P2 的技能在 P2 的視口渲染，P2在其視口中也是底部
+                #     is_this_area_bottom_perspective_for_skill_owner = True
+
+                # 簡化：當 _render_player_view 被調用時，view_player_state 就是該視角的主角，
+                # 他總是被畫在該視角的底部。所以 is_owner_bottom_perspective_in_this_area 總為 True。
+                # 這個參數的設計是為了將來如果要在對方的視角畫我方技能效果時使用。
+                # 目前，我們只渲染 view_player_state (視角主角) 自己的技能。
+                
+                is_view_player_the_skill_owner = (view_player_state == view_player_state.skill_instance.owner)
+
+                if is_view_player_the_skill_owner: # 只渲染視角玩家自己的技能
+                    try:
+                        view_player_state.skill_instance.render(
+                            target_surface_for_view,      # 繪製目標表面
+                            game_render_area_on_target,   # 此技能生效的遊戲區域在螢幕上的實際 Rect
+                            s,                            # 遊戲內容的縮放因子 (s 是 self.game_content_scale_factor)
+                            True                          # ⭐️ 在擁有者的視角中，擁有者總是在底部
+                        )
+                    except TypeError as e:
+                        # ... (錯誤處理不變) ...
+                        if "render() takes" in str(e) and ("but 5 were given" in str(e) or "missing 1 required positional argument: 'is_owner_bottom_perspective_in_this_area'" in str(e)):
+                             if DEBUG_RENDERER:
+                                print(f"[DEBUG_RENDERER] Skill '{view_player_state.skill_instance.__class__.__name__}' for {view_player_state.identifier} "
+                                      f"does not have an updated render(surface, game_area, scale, is_bottom_persp) method yet. Skipping.")
+                        else:
+                            if DEBUG_RENDERER: print(f"[DEBUG_RENDERER] Error calling skill.render for {view_player_state.identifier}: {e}")
+                            import traceback; traceback.print_exc()
+                    except Exception as e:
+                        if DEBUG_RENDERER: print(f"[DEBUG_RENDERER] Unexpected error calling skill.render for {view_player_state.identifier}: {e}")
+                        import traceback; traceback.print_exc()
 
 
         # 3. 繪製主要遊戲元素
