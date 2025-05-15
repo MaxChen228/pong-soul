@@ -200,7 +200,81 @@ class PongDuelEnv:
             # self.player1.skill_instance.get_energy_ratio() if self.player1.skill_instance else 0.0,
         ]
         return np.array(obs_array, dtype=np.float32)
+    def get_render_data(self):
+        """
+        收集並返回所有渲染所需的遊戲狀態數據。
+        """
+        # 確定球的當前視覺效果 (例如，是否被技能改變)
+        # SoulEaterBugSkill 會直接修改 self.renderer.ball_image，
+        # Renderer 初始化時也會根據 env.ball_radius_px 縮放球的圖像。
+        # 理想情況下，這裡應該返回一個 image_key，Renderer 根據 key 獲取/生成圖像。
+        # 目前，Renderer 仍然直接使用 self.renderer.ball_image，這部分解耦稍後處理。
+        # 但我們需要在 Renderer 中獲取球的旋轉角度。
+        # Renderer 的 self.ball_image 是已經縮放過的。
 
+        # 技能的視覺效果參數 (例如 SlowMoSkill 的衝擊波、時鐘、軌跡)
+        # 這些目前由技能的 render 方法直接繪製，暫時不包含在 render_data 中。
+        # 未來可以考慮將這些參數也收集到這裡，由 Renderer 統一繪製。
+
+        player1_skill_data = None
+        if self.player1.skill_instance:
+            player1_skill_data = {
+                "instance": self.player1.skill_instance, # <-- 新增這一行
+                "code_name": self.player1.skill_code_name,
+                "is_active": self.player1.skill_instance.is_active(),
+                "energy_ratio": self.player1.skill_instance.get_energy_ratio(),
+                "cooldown_seconds": self.player1.skill_instance.get_cooldown_seconds(),
+            }
+
+        opponent_skill_data = None
+        if self.opponent.skill_instance:
+            opponent_skill_data = {
+                "instance": self.opponent.skill_instance, # <-- 新增這一行
+                "code_name": self.opponent.skill_code_name,
+                "is_active": self.opponent.skill_instance.is_active(),
+                "energy_ratio": self.opponent.skill_instance.get_energy_ratio(),
+                "cooldown_seconds": self.opponent.skill_instance.get_cooldown_seconds(),
+            }
+
+        # 遊戲是否處於凍結狀態
+        freeze_active = (self.freeze_timer > 0 and 
+                        (pygame.time.get_ticks() - self.freeze_timer < self.freeze_duration))
+
+        render_data = {
+            "game_mode": self.game_mode,
+            "ball": {
+                "x_norm": self.ball_x,
+                "y_norm": self.ball_y,
+                "spin": self.spin, # Renderer 會用此計算 ball_angle
+                "radius_norm": self.ball_radius_normalized, # Renderer 可能需要這個來輔助繪製或碰撞視覺
+            },
+            "player1": {
+                "x_norm": self.player1.x,
+                "paddle_width_norm": self.player1.paddle_width_normalized, # Renderer 用這個和 scale_factor 算實際像素寬
+                "paddle_color": self.player1.paddle_color,
+                "lives": self.player1.lives,
+                "max_lives": self.player1.max_lives,
+                "skill_data": player1_skill_data,
+                "is_ai": self.player1.is_ai, # Renderer 可能不需要，但包含無妨
+                "identifier": self.player1.identifier, # 主要用於調試或 PvP UI
+            },
+            "opponent": {
+                "x_norm": self.opponent.x,
+                "paddle_width_norm": self.opponent.paddle_width_normalized,
+                "paddle_color": self.opponent.paddle_color,
+                "lives": self.opponent.lives,
+                "max_lives": self.opponent.max_lives,
+                "skill_data": opponent_skill_data,
+                "is_ai": self.opponent.is_ai,
+                "identifier": self.opponent.identifier,
+            },
+            "trail": list(self.trail), # 複製列表，避免直接修改原始數據
+            "paddle_height_norm": self.paddle_height_normalized, # 所有球拍的正規化高度
+            "freeze_active": freeze_active,
+            # Renderer 自身會維護 ball_image 和 ball_angle，所以不從這裡傳遞
+            # 但 spin 是需要的，Renderer 用它更新 ball_angle
+        }
+        return render_data
     def get_lives(self):
         return self.player1.lives, self.opponent.lives
 
@@ -391,24 +465,28 @@ class PongDuelEnv:
             if DEBUG_ENV: print("[PongDuelEnv.render] Renderer not initialized. Creating one.")
             if self.provided_main_screen_surface is None and DEBUG_ENV_FULLSCREEN:
                 print("[DEBUG_ENV_FULLSCREEN][PongDuelEnv.render] CRITICAL WARNING: provided_main_screen_surface is None when creating Renderer!")
-            
+
             actual_width, actual_height = (0,0)
             if self.provided_main_screen_surface:
                 actual_width, actual_height = self.provided_main_screen_surface.get_size()
                 if DEBUG_ENV_FULLSCREEN: print(f"[DEBUG_ENV_FULLSCREEN][PongDuelEnv.render] Passing surface of size {actual_width}x{actual_height} to Renderer.")
-            else: # Fallback if no surface was provided (should not happen in normal flow)
+            else: 
                 if DEBUG_ENV_FULLSCREEN: print(f"[DEBUG_ENV_FULLSCREEN][PongDuelEnv.render] No surface provided, Renderer might create its own default window.")
-                # Renderer's __init__ will need a fallback for width/height if surface is None
-            
+
             self.renderer = Renderer(
-                env=self,
-                game_mode=self.game_mode,
-                # ⭐️ 將主螢幕表面和其實際尺寸傳遞給 Renderer
+                # env=self, # Renderer 不再直接持有 env 的引用
+                game_mode=self.game_mode, # Renderer 仍需知道遊戲模式以進行佈局
+                logical_game_area_size=self.render_size, # Renderer 需要知道遊戲區的邏輯大小
+                logical_ball_radius_px=self.ball_radius_px, # Renderer 初始化球圖像時需要
+                logical_paddle_height_px=self.paddle_height_px, # Renderer 繪製球拍時需要
                 actual_screen_surface=self.provided_main_screen_surface,
                 actual_screen_width=actual_width,
                 actual_screen_height=actual_height
             )
-        self.renderer.render()
+
+        # 收集渲染數據並傳遞給 Renderer
+        render_data_packet = self.get_render_data()
+        self.renderer.render(render_data_packet)
 
     def close(self):
         if DEBUG_ENV: print("[PongDuelEnv.close] Closing environment.")
