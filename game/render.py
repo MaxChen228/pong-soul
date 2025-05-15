@@ -6,8 +6,8 @@ from game.settings import GameSettings
 from utils import resource_path
 from game.skills.skill_config import SKILL_CONFIGS # 用於技能條顏色等
 
-DEBUG_RENDERER = True
-DEBUG_RENDERER_FULLSCREEN = True
+DEBUG_RENDERER = False
+DEBUG_RENDERER_FULLSCREEN = False
 
 class Renderer:
     def __init__(self, 

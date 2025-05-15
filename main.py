@@ -15,16 +15,18 @@ from game.config_manager import ConfigManager # <--- 新增這一行
 # 引入狀態
 from game.states.base_state import BaseState
 
-DEBUG_GAME_APP = True
+DEBUG_GAME_APP = False
 
 class GameFlowStateName(Enum):
     QUIT = 0
     SELECT_GAME_MODE = 1
     SELECT_INPUT_PVA = 2
     SELECT_SKILL_PVA = 3
-    SELECT_LEVEL_PVA = 4 # <-- 新增狀態
-    RUN_PVP_SKILL_SELECTION = 5 # <-- 原來是 4
-    GAMEPLAY = 6                # <-- 原來是 5
+    SELECT_LEVEL_PVA = 4
+    RUN_PVP_SKILL_SELECTION = 5
+    GAMEPLAY = 6
+    SETTINGS_MENU = 7      # <-- 新增：設定選單狀態
+    THEME_SELECTION = 8    # <-- 新增：主題選擇狀態
 
 class GameApp:
     def __init__(self):
@@ -93,21 +95,23 @@ class GameApp:
         self.change_state(GameFlowStateName.SELECT_GAME_MODE)
 
     def _register_states(self):
-        # 從新的獨立檔案導入選單狀態
         from game.states.select_game_mode_state import SelectGameModeState
         from game.states.select_input_pva_state import SelectInputPvaState
         from game.states.select_skill_pva_state import SelectSkillPvaState
-        from game.states.level_selection_pva_state import LevelSelectionPvaState # <-- 導入新狀態
+        from game.states.level_selection_pva_state import LevelSelectionPvaState
         from game.states.run_pvp_skill_selection_state import RunPvpSkillSelectionState
-
         from game.states.gameplay_state import GameplayState
+        from game.states.settings_menu_state import SettingsMenuState          # <-- 導入新狀態
+        from game.states.theme_selection_state import ThemeSelectionState      # <-- 導入新狀態
 
         self.states[GameFlowStateName.SELECT_GAME_MODE] = SelectGameModeState(self)
         self.states[GameFlowStateName.SELECT_INPUT_PVA] = SelectInputPvaState(self)
         self.states[GameFlowStateName.SELECT_SKILL_PVA] = SelectSkillPvaState(self)
-        self.states[GameFlowStateName.SELECT_LEVEL_PVA] = LevelSelectionPvaState(self) # <-- 註冊新狀態
+        self.states[GameFlowStateName.SELECT_LEVEL_PVA] = LevelSelectionPvaState(self)
         self.states[GameFlowStateName.RUN_PVP_SKILL_SELECTION] = RunPvpSkillSelectionState(self)
         self.states[GameFlowStateName.GAMEPLAY] = GameplayState(self)
+        self.states[GameFlowStateName.SETTINGS_MENU] = SettingsMenuState(self)          # <-- 註冊新狀態
+        self.states[GameFlowStateName.THEME_SELECTION] = ThemeSelectionState(self)      # <-- 註冊新狀態
 
     def _calculate_and_set_render_context(self, state_object, state_name_enum):
         """為指定的狀態物件計算並設定 scale_factor 和 render_area。"""
@@ -115,9 +119,11 @@ class GameApp:
         is_gameplay_state = (state_name_enum == GameFlowStateName.GAMEPLAY)
 
         if state_name_enum in [GameFlowStateName.SELECT_GAME_MODE,
-                                      GameFlowStateName.SELECT_INPUT_PVA,
-                                      GameFlowStateName.SELECT_SKILL_PVA,
-                                      GameFlowStateName.SELECT_LEVEL_PVA]: # <-- 添加新狀態
+                                  GameFlowStateName.SELECT_INPUT_PVA,
+                                  GameFlowStateName.SELECT_SKILL_PVA,
+                                  GameFlowStateName.SELECT_LEVEL_PVA,
+                                  GameFlowStateName.SETTINGS_MENU,     # <-- 添加新狀態
+                                  GameFlowStateName.THEME_SELECTION]:  # <-- 添加新狀態
             logical_w, logical_h = self.LOGICAL_MENU_WIDTH, self.LOGICAL_MENU_HEIGHT
         elif state_name_enum == GameFlowStateName.RUN_PVP_SKILL_SELECTION:
             logical_w, logical_h = self.LOGICAL_PVP_SKILL_MENU_WIDTH, self.LOGICAL_PVP_SKILL_MENU_HEIGHT
