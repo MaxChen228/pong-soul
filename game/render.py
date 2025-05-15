@@ -23,6 +23,12 @@ class Renderer:
             print(f"[DEBUG_RENDERER_FULLSCREEN][Renderer.__init__] Received actual_screen_surface: {type(actual_screen_surface)}")
             if actual_screen_surface:
                 print(f"    Surface size: {actual_screen_surface.get_size()}, Expected: {actual_screen_width}x{actual_screen_height}")
+        try:
+            self.visual_spin_multiplier = GameSettings.VISUAL_SPIN_MULTIPLIER
+            if DEBUG_RENDERER: print(f"[Renderer.__init__] Visual Spin Multiplier loaded from GameSettings: {self.visual_spin_multiplier}")
+        except AttributeError:
+            if DEBUG_RENDERER: print(f"[Renderer.__init__] WARNING: VISUAL_SPIN_MULTIPLIER not found in GameSettings. Defaulting to 10.")
+            self.visual_spin_multiplier = 10 # 後備的後備值，理論上 GameSettings._fallback_settings 會處理
 
         # self.env = env # 不再儲存 env 的引用
         self.game_mode = game_mode
@@ -203,7 +209,6 @@ class Renderer:
 
         self.ball_angle = 0 # 球的旋轉角度由 Renderer 維護
         self.skill_glow_position = 0; self.skill_glow_trail = []; self.max_skill_glow_trail_length = 15
-        if DEBUG_RENDERER: print("[Renderer.__init__] Renderer initialization complete with scaling parameters.")
 
 
     def _draw_walls(self, target_surface, game_area_on_surface_rect, color=(100,100,100)):
@@ -409,20 +414,14 @@ class Renderer:
                     trail_x_scaled = ga_left + int(tx_norm * ga_width_scaled)
                     trail_y_scaled = ga_top + int(trail_ty_norm_for_view * ga_height_scaled)
                     target_surface_for_view.blit(temp_surf, (trail_x_scaled - scaled_trail_radius, trail_y_scaled - scaled_trail_radius))
-
+            
             # --- 選擇並縮放球的圖像 ---
             original_ball_surf = Renderer._original_ball_visuals.get(ball_image_key, Renderer._original_ball_visuals["default"])
-
-            # 根據 image_key，球的邏輯直徑可能不同。
-            # 例如，蟲子圖像的 "bug_display_scale_factor" 可能使其邏輯上比普通球大。
-            # self.scaled_ball_diameter_px 是基於 self.logical_ball_radius_px 計算的。
-            # 如果蟲子有不同的基礎尺寸，這裡需要調整。
-            # 暫時假設所有球視覺的目標縮放直徑都是 self.scaled_ball_diameter_px
             current_ball_render_image_scaled = pygame.transform.smoothscale(original_ball_surf, (self.scaled_ball_diameter_px, self.scaled_ball_diameter_px))
             # --- 球圖像選擇結束 ---
 
             spin_for_this_view = -ball_spin if is_top_player_perspective else ball_spin
-            self.ball_angle = (self.ball_angle + spin_for_this_view * 100) % 360 
+            self.ball_angle = (self.ball_angle + spin_for_this_view * self.visual_spin_multiplier) % 360
 
             rotated_ball = pygame.transform.rotate(current_ball_render_image_scaled, self.ball_angle)
             ball_rect = rotated_ball.get_rect(center=(ball_center_x_scaled, ball_center_y_scaled))

@@ -34,6 +34,7 @@ class _GameSettingsSingleton:
         "ball_behavior.initial_angle_deg_range": [-60, 60],
         "ball_behavior.initial_direction_serves_down": True,
         "theme.active_theme_name": "Retro Arcade", # This is the key for the active theme
+        "renderer.visual_spin_multiplier": 80,
     }
 
     _key_map = {
@@ -56,6 +57,7 @@ class _GameSettingsSingleton:
         "BALL_INITIAL_ANGLE_DEG_RANGE": "ball_behavior.initial_angle_deg_range",
         "BALL_INITIAL_DIRECTION_SERVES_DOWN": "ball_behavior.initial_direction_serves_down",
         "ACTIVE_THEME_NAME": "theme.active_theme_name", # Maps to the YAML key
+        "VISUAL_SPIN_MULTIPLIER": "renderer.visual_spin_multiplier", # <--- 新增這一行
     }
 
     class GameMode:
