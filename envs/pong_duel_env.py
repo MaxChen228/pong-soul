@@ -5,7 +5,7 @@ import random
 import math
 
 from game.theme import Style
-from game.physics import collide_sphere_with_moving_plane # 雖然可能不會直接用到，但保留以防萬一
+from game.physics import collide_sphere_with_moving_plane 
 from game.sound import SoundManager
 from game.render import Renderer # Renderer 將被修改
 from game.settings import GameSettings
@@ -231,6 +231,164 @@ class PongDuelEnv:
             # self.player1.skill_instance.get_energy_ratio() if self.player1.skill_instance else 0.0,
         ]
         return np.array(obs_array, dtype=np.float32)
+    
+    def _determine_time_scale(self):
+        """根據啟用的 SlowMo 技能決定當前的 time_scale。"""
+        current_time_scale = 1.0
+        active_slowmo_skill = None
+        if self.player1.skill_instance and isinstance(self.player1.skill_instance, SlowMoSkill) and self.player1.skill_instance.is_active():
+             active_slowmo_skill = self.player1.skill_instance
+        if self.opponent.skill_instance and isinstance(self.opponent.skill_instance, SlowMoSkill) and self.opponent.skill_instance.is_active():
+            # 如果雙方都開啟 SlowMo，選擇效果更強的 (time_scale 更小)
+            if active_slowmo_skill is None or \
+               self.opponent.skill_instance.slow_time_scale_value < active_slowmo_skill.slow_time_scale_value:
+                 active_slowmo_skill = self.opponent.skill_instance
+        
+        if active_slowmo_skill:
+            current_time_scale = active_slowmo_skill.slow_time_scale_value
+        return current_time_scale
+
+    def _update_player_positions(self, player1_action_input, opponent_action_input, time_scale):
+        """根據輸入和時間尺度更新玩家和對手球拍的位置。"""
+        self.player1.prev_x = self.player1.x
+        self.opponent.prev_x = self.opponent.x
+        
+        player_move_speed = 0.03 # 正規化移動速度
+        
+        if player1_action_input == 0: self.player1.x -= player_move_speed * time_scale
+        elif player1_action_input == 2: self.player1.x += player_move_speed * time_scale
+        
+        if opponent_action_input == 0: self.opponent.x -= player_move_speed * time_scale
+        elif opponent_action_input == 2: self.opponent.x += player_move_speed * time_scale
+
+        self.player1.x = np.clip(self.player1.x, 0.0, 1.0)
+        self.opponent.x = np.clip(self.opponent.x, 0.0, 1.0)
+
+    def _update_active_skills(self):
+        """更新所有啟用的技能實例。"""
+        if self.player1.skill_instance and self.player1.skill_instance.is_active():
+            self.player1.skill_instance.update()
+        if self.opponent.skill_instance and self.opponent.skill_instance.is_active():
+            self.opponent.skill_instance.update()
+        # 如果技能更新導致回合結束 (例如 SoulEaterBugSkill 得分或被擊中)，
+        # self.round_concluded_by_skill 會被技能內部設定為 True。
+
+    def _apply_ball_movement_and_physics(self, time_scale):
+        """
+        應用球的移動（基於速度和旋轉）並更新拖尾。
+        不處理碰撞。
+        """
+        if self.enable_spin:
+            # 確保 self.ball_vy 不為零，以避免乘以零得到 NaN 或不期望的結果
+            spin_force_x = self.magnus_factor * self.spin * self.ball_vy if self.ball_vy != 0 else 0
+            self.ball_vx += spin_force_x * time_scale # ts 改為 time_scale
+        
+        self.ball_x += self.ball_vx * time_scale
+        self.ball_y += self.ball_vy * time_scale
+
+        self.trail.append((self.ball_x, self.ball_y))
+        if len(self.trail) > self.max_trail_length: 
+            self.trail.pop(0)
+
+    def _handle_wall_collisions(self):
+        """處理球與左右牆壁的碰撞。"""
+        collided_with_wall = False
+        if self.ball_x - self.ball_radius_normalized <= 0:
+            self.ball_x = self.ball_radius_normalized
+            self.ball_vx *= -1
+            collided_with_wall = True
+        elif self.ball_x + self.ball_radius_normalized >= 1.0: # 遊戲區域寬度為1.0
+            self.ball_x = 1.0 - self.ball_radius_normalized
+            self.ball_vx *= -1
+            collided_with_wall = True
+        
+        if collided_with_wall and hasattr(self.sound_manager, 'play_wall_hit'): # 假設有撞牆音效
+            # self.sound_manager.play_wall_hit() # 實際播放音效
+            pass # 目前沒有 play_wall_hit，所以暫時 pass
+
+    def _handle_paddle_collisions(self, old_ball_y, time_scale):
+        """
+        處理球與兩個球拍的碰撞。
+        返回 True 如果本幀發生了球拍碰撞，否則返回 False。
+        """
+        collided_this_step = False
+        ts = time_scale # 使用當前的時間尺度
+
+        # 對手球拍 (上方) 碰撞檢測
+        opponent_paddle_surface_y = self.paddle_height_normalized 
+        opponent_paddle_contact_y = opponent_paddle_surface_y + self.ball_radius_normalized
+        opponent_paddle_half_w = self.opponent.paddle_width_normalized / 2
+
+        if old_ball_y > opponent_paddle_contact_y and self.ball_y <= opponent_paddle_contact_y:
+            if abs(self.ball_x - self.opponent.x) < opponent_paddle_half_w + self.ball_radius_normalized * 0.75:
+                self.ball_y = opponent_paddle_contact_y 
+                vn = self.ball_vy 
+                vt = self.ball_vx 
+                u_paddle = (self.opponent.x - self.opponent.prev_x) / ts if ts != 0 else 0 
+                
+                vn_post, vt_post, omega_post = collide_sphere_with_moving_plane(
+                    vn, vt, u_paddle, self.spin, self.e_ball_paddle, self.mu_ball_paddle, self.mass, self.ball_radius_normalized
+                )
+                self.ball_vy = vn_post
+                self.ball_vx = vt_post
+                self.spin = omega_post
+                self.bounces += 1
+                self._scale_difficulty()
+                self.sound_manager.play_paddle_hit()
+                collided_this_step = True
+        
+        # 玩家 (下方) 球拍碰撞檢測
+        if not collided_this_step: # 僅在未與上方球拍碰撞時檢查下方球拍
+            player1_paddle_surface_y = 1.0 - self.paddle_height_normalized 
+            player1_paddle_contact_y = player1_paddle_surface_y - self.ball_radius_normalized 
+            player1_paddle_half_w = self.player1.paddle_width_normalized / 2
+
+            if old_ball_y < player1_paddle_contact_y and self.ball_y >= player1_paddle_contact_y: 
+                if abs(self.ball_x - self.player1.x) < player1_paddle_half_w + self.ball_radius_normalized * 0.75:
+                    self.ball_y = player1_paddle_contact_y 
+                    vn = -self.ball_vy 
+                    vt = self.ball_vx
+                    u_paddle = (self.player1.x - self.player1.prev_x) / ts if ts != 0 else 0
+                    
+                    vn_post, vt_post, omega_post = collide_sphere_with_moving_plane(
+                        vn, vt, u_paddle, self.spin, self.e_ball_paddle, self.mu_ball_paddle, self.mass, self.ball_radius_normalized
+                    )
+                    self.ball_vy = -vn_post 
+                    self.ball_vx = vt_post
+                    self.spin = omega_post
+                    self.bounces += 1
+                    self._scale_difficulty()
+                    self.sound_manager.play_paddle_hit()
+                    collided_this_step = True
+        
+        return collided_this_step
+
+    def _check_scoring_and_resolve_round(self, collided_with_paddle_this_step):
+        """
+        檢查球是否出界得分，更新生命值，設定凍結計時器。
+        返回一個元組 (round_done, info_dict)。
+        """
+        round_done = False
+        info = {'scorer': None} # 初始化 info
+        current_time_ticks = pygame.time.get_ticks()
+
+        if not collided_with_paddle_this_step: # 只有在本幀沒有發生球拍碰撞時才判斷得分
+            if self.ball_y - self.ball_radius_normalized < 0: # 球觸及或越過頂部邊界 (玩家得分)
+                if self.opponent.lives > 0: self.opponent.lives -=1 
+                self.player1.last_hit_time = current_time_ticks 
+                self.freeze_timer = current_time_ticks
+                round_done = True
+                info['scorer'] = 'player1'
+                if DEBUG_ENV: print(f"[PongDuelEnv._check_scoring] Player 1 scored! Opponent lives: {self.opponent.lives}")
+            elif self.ball_y + self.ball_radius_normalized > 1.0: # 球觸及或越過底部邊界 (對手得分)
+                if self.player1.lives > 0: self.player1.lives -= 1
+                self.opponent.last_hit_time = current_time_ticks 
+                self.freeze_timer = current_time_ticks
+                round_done = True
+                info['scorer'] = 'opponent'
+                if DEBUG_ENV: print(f"[PongDuelEnv._check_scoring] Opponent scored! Player 1 lives: {self.player1.lives}")
+        
+        return round_done, info
     def get_render_data(self):
         """
         收集並返回所有渲染所需的遊戲狀態數據。
@@ -331,164 +489,94 @@ class PongDuelEnv:
 
     def step(self, player1_action_input, opponent_action_input):
         current_time_ticks = pygame.time.get_ticks()
-        info = {'scorer': None} # 初始化 info，確保 scorer 鍵存在
-
+        
+        # 1. 處理遊戲凍結狀態
         if self.freeze_timer > 0:
             if current_time_ticks - self.freeze_timer < self.freeze_duration:
-                return self._get_obs(), 0, False, False, info
+                return self._get_obs(), 0, False, False, {'scorer': None} # 回合未結束，遊戲未結束
             else:
-                self.freeze_timer = 0
+                self.freeze_timer = 0 # 凍結結束
 
-        self.player1.prev_x = self.player1.x
-        self.opponent.prev_x = self.opponent.x
-        old_ball_y_for_collision = self.ball_y # 用於判斷是否穿過球拍平面
+        # 2. 確定當前時間尺度 (受 SlowMo 技能影響)
+        current_time_scale = self._determine_time_scale()
+        self.time_scale = current_time_scale # 更新環境的 time_scale 供其他地方使用 (如果需要)
 
-        self.round_concluded_by_skill = False
-        self.current_round_info = {} # 重置技能回合信息
+        # 3. 更新玩家和對手球拍位置
+        self._update_player_positions(player1_action_input, opponent_action_input, current_time_scale)
 
-        if self.player1.skill_instance and self.player1.skill_instance.is_active():
-            self.player1.skill_instance.update()
-        if self.opponent.skill_instance and self.opponent.skill_instance.is_active():
-            self.opponent.skill_instance.update()
+        # 4. 記錄球碰撞前的Y座標 (用於精確碰撞檢測)
+        old_ball_y_for_collision = self.ball_y 
 
-        if self.round_concluded_by_skill: # 如果技能更新導致回合結束
-            if DEBUG_ENV: print(f"[SKILL_DEBUG][PongDuelEnv.step] Round concluded by skill. Info: {self.current_round_info}")
-            game_over = self.player1.lives <= 0 or self.opponent.lives <= 0
+        # 5. 更新啟用的技能邏輯 (例如 SoulEaterBugSkill 的移動，或 LongPaddle 的持續時間)
+        # SoulEaterBugSkill 的 update 方法可能會直接修改球的位置和速度，並設定 self.round_concluded_by_skill
+        self.round_concluded_by_skill = False # 重置標記
+        self.current_round_info = {} # 重置回合資訊
+        self._update_active_skills()
+
+        # 6. 如果技能更新導致回合結束 (例如蟲子得分或被擊中)
+        if self.round_concluded_by_skill:
+            if DEBUG_ENV: print(f"[SKILL_DEBUG][PongDuelEnv.step] Round concluded by SKILL. Info: {self.current_round_info}")
+            game_over_after_skill = self.player1.lives <= 0 or self.opponent.lives <= 0
             # 確保 info 字典從 self.current_round_info 更新
-            info.update(self.current_round_info)
-            return self._get_obs(), 0, True, game_over, info
+            final_info = {'scorer': None} # 預設
+            final_info.update(self.current_round_info)
+            return self._get_obs(), 0, True, game_over_after_skill, final_info
 
-        self.time_scale = 1.0
-        active_slowmo_skill = None
-        if self.player1.skill_instance and isinstance(self.player1.skill_instance, SlowMoSkill) and self.player1.skill_instance.is_active():
-             active_slowmo_skill = self.player1.skill_instance
-        if self.opponent.skill_instance and isinstance(self.opponent.skill_instance, SlowMoSkill) and self.opponent.skill_instance.is_active():
-            if active_slowmo_skill is None or self.opponent.skill_instance.slow_time_scale_value < active_slowmo_skill.slow_time_scale_value:
-                 active_slowmo_skill = self.opponent.skill_instance
-        if active_slowmo_skill:
-            self.time_scale = active_slowmo_skill.slow_time_scale_value
-
-        player_move_speed = 0.03 # 正規化移動速度
-        ts = self.time_scale     # 當前幀的時間尺度
-
-        if player1_action_input == 0: self.player1.x -= player_move_speed * ts
-        elif player1_action_input == 2: self.player1.x += player_move_speed * ts
-        if opponent_action_input == 0: self.opponent.x -= player_move_speed * ts
-        elif opponent_action_input == 2: self.opponent.x += player_move_speed * ts
-
-        self.player1.x = np.clip(self.player1.x, 0.0, 1.0)
-        self.opponent.x = np.clip(self.opponent.x, 0.0, 1.0)
-
+        # 7. 判斷是否執行常規球物理 (如果沒有技能覆蓋球的物理)
         run_normal_ball_physics = True
-        # 檢查是否有技能覆蓋了球的物理邏輯 (例如 SoulEaterBugSkill)
-        if self.player1.skill_instance and self.player1.skill_instance.is_active() and self.player1.skill_instance.overrides_ball_physics:
+        # SoulEaterBugSkill 等技能會在其 update 中處理球的移動和碰撞，並設定 round_concluded_by_skill
+        # 所以這裡不再需要檢查 skill.overrides_ball_physics，而是依賴 round_concluded_by_skill
+        # 然而，為了確保在技能沒有結束回合但確實覆蓋了物理的情況下，不執行以下常規物理，
+        # 檢測 skill.overrides_ball_physics 仍然是有意義的。
+        # 讓我們假設，如果一個技能 overrides_ball_physics 並且 is_active，它總會在自己的 update 中
+        # 處理球的最終狀態或設定 round_concluded_by_skill。
+        # 為了安全，如果一個技能說它覆蓋物理且當前啟用，我們就不執行常規物理。
+        if (self.player1.skill_instance and self.player1.skill_instance.is_active() and 
+            getattr(self.player1.skill_instance, 'overrides_ball_physics', False)):
             run_normal_ball_physics = False
-        elif self.opponent.skill_instance and self.opponent.skill_instance.is_active() and self.opponent.skill_instance.overrides_ball_physics:
+        elif (self.opponent.skill_instance and self.opponent.skill_instance.is_active() and
+              getattr(self.opponent.skill_instance, 'overrides_ball_physics', False)):
             run_normal_ball_physics = False
-        
-        reward = 0; done = False; game_over = False
+
+        reward = 0
+        round_done_by_normal_physics = False
+        game_over_by_normal_physics = False
+        info_from_normal_physics = {'scorer': None}
 
         if run_normal_ball_physics:
-            if self.enable_spin:
-                spin_force_x = self.magnus_factor * self.spin * self.ball_vy if self.ball_vy != 0 else 0
-                self.ball_vx += spin_force_x * ts
+            # 8. 應用球的移動和基礎物理 (不含碰撞)
+            self._apply_ball_movement_and_physics(current_time_scale)
+
+            # 9. 處理牆壁碰撞
+            self._handle_wall_collisions()
+
+            # 10. 處理球拍碰撞
+            collided_with_paddle_this_step = self._handle_paddle_collisions(old_ball_y_for_collision, current_time_scale)
+
+            # 11. 檢查得分情況並結束回合 (如果球出界)
+            round_done_by_normal_physics, info_from_normal_physics = self._check_scoring_and_resolve_round(collided_with_paddle_this_step)
             
-            self.ball_x += self.ball_vx * ts
-            self.ball_y += self.ball_vy * ts
+            if round_done_by_normal_physics and DEBUG_ENV:
+                print(f"[NORMAL_PHYSICS][PongDuelEnv.step] Round ended by NORMAL physics. Scorer: {info_from_normal_physics.get('scorer')}. P1 Lives: {self.player1.lives}, Opponent Lives: {self.opponent.lives}")
+        
+        # 12. 判斷遊戲是否結束 (基於生命值)
+        # 只有在回合確實結束時（無論是通過技能還是常規物理），才更新 game_over 狀態
+        if round_done_by_normal_physics or self.round_concluded_by_skill : # 確保回合已結束
+            game_over_by_normal_physics = self.player1.lives <= 0 or self.opponent.lives <= 0
+            if game_over_by_normal_physics and DEBUG_ENV:
+                print(f"[NORMAL_PHYSICS][PongDuelEnv.step] GAME OVER by NORMAL physics detected.")
 
-            self.trail.append((self.ball_x, self.ball_y))
-            if len(self.trail) > self.max_trail_length: self.trail.pop(0)
-
-            # 牆壁碰撞
-            if self.ball_x - self.ball_radius_normalized <= 0:
-                self.ball_x = self.ball_radius_normalized
-                self.ball_vx *= -1
-                # 可以加入撞牆音效 self.sound_manager.play_wall_hit()
-            elif self.ball_x + self.ball_radius_normalized >= 1:
-                self.ball_x = 1 - self.ball_radius_normalized
-                self.ball_vx *= -1
-                # 可以加入撞牆音效
-
-            collided_with_paddle_this_step = False # 用於避免球穿過球拍後仍然判得分
-
-            # 對手球拍 (上方) 碰撞檢測
-            opponent_paddle_surface_y = self.paddle_height_normalized # 球拍底部邊緣的Y座標
-            opponent_paddle_contact_y = opponent_paddle_surface_y + self.ball_radius_normalized # 球心接觸此邊緣時的Y座標
-            opponent_paddle_half_w = self.opponent.paddle_width_normalized / 2
-
-            if old_ball_y_for_collision > opponent_paddle_contact_y and self.ball_y <= opponent_paddle_contact_y: # 球從上方穿過接觸線
-                if abs(self.ball_x - self.opponent.x) < opponent_paddle_half_w + self.ball_radius_normalized * 0.75: # X軸在球拍範圍內 (略微放寬)
-                    self.ball_y = opponent_paddle_contact_y # 校正球的位置，防止穿透
-                    vn = self.ball_vy # 法向速度 (向下為正)
-                    vt = self.ball_vx # 切向速度
-                    u_paddle = (self.opponent.x - self.opponent.prev_x) / ts if ts != 0 else 0 # 球拍切向速度
-                    
-                    vn_post, vt_post, omega_post = collide_sphere_with_moving_plane(
-                        vn, vt, u_paddle, self.spin, self.e_ball_paddle, self.mu_ball_paddle, self.mass, self.ball_radius_normalized
-                    )
-                    self.ball_vy = vn_post
-                    self.ball_vx = vt_post
-                    self.spin = omega_post
-                    self.bounces += 1
-                    self._scale_difficulty()
-                    self.sound_manager.play_paddle_hit()
-                    collided_with_paddle_this_step = True
-                # else: # X軸未在球拍範圍內，但球已越過對手球拍的Y基準線，應視為玩家得分（如果球繼續向下）
-                      # 這部分邏輯在下方 ball_y < 0 處理更佳
+        # 最終的回合結束狀態和資訊
+        final_round_done = round_done_by_normal_physics or self.round_concluded_by_skill
+        final_game_over = game_over_by_normal_physics # game_over_after_skill 已經在前面處理過了
+        
+        final_info_to_return = {'scorer': None}
+        if self.round_concluded_by_skill: # 技能結束回合的資訊優先
+            final_info_to_return.update(self.current_round_info)
+        elif round_done_by_normal_physics:
+            final_info_to_return.update(info_from_normal_physics)
             
-            # 玩家 (下方) 球拍碰撞檢測
-            if not done: # 如果尚未結束回合
-                player1_paddle_surface_y = 1.0 - self.paddle_height_normalized # 球拍頂部邊緣的Y座標
-                player1_paddle_contact_y = player1_paddle_surface_y - self.ball_radius_normalized # 球心接觸此邊緣時的Y座標
-                player1_paddle_half_w = self.player1.paddle_width_normalized / 2
-
-                if old_ball_y_for_collision < player1_paddle_contact_y and self.ball_y >= player1_paddle_contact_y: # 球從下方穿過接觸線
-                    if abs(self.ball_x - self.player1.x) < player1_paddle_half_w + self.ball_radius_normalized * 0.75: # X軸在球拍範圍內
-                        self.ball_y = player1_paddle_contact_y # 校正位置
-                        vn = -self.ball_vy # 法向速度 (向上為正，故取反)
-                        vt = self.ball_vx
-                        u_paddle = (self.player1.x - self.player1.prev_x) / ts if ts != 0 else 0
-                        
-                        vn_post, vt_post, omega_post = collide_sphere_with_moving_plane(
-                            vn, vt, u_paddle, self.spin, self.e_ball_paddle, self.mu_ball_paddle, self.mass, self.ball_radius_normalized
-                        )
-                        self.ball_vy = -vn_post # 反彈後速度方向改變
-                        self.ball_vx = vt_post
-                        self.spin = omega_post
-                        self.bounces += 1
-                        self._scale_difficulty()
-                        self.sound_manager.play_paddle_hit()
-                        collided_with_paddle_this_step = True
-                    # else: # X軸未在球拍範圍內，但球已越過玩家球拍的Y基準線，應視為對手得分（如果球繼續向上）
-                          # 這部分邏輯在下方 ball_y > 1.0 處理更佳
-
-            # 得分判斷
-            if not collided_with_paddle_this_step: # 只有在本幀沒有發生球拍碰撞時才判斷得分
-                if self.ball_y - self.ball_radius_normalized < 0: # 球觸及或越過頂部邊界 (玩家得分)
-                    self.player1.lives += 0 # 這裡之前是 self.opponent.lives -=1，P1得分，對手生命減少
-                                            # 假設P1在下，其對手 (opponent) 在上。球到頂部是P1得分。
-                    if self.opponent.lives > 0 : self.opponent.lives -=1 # 確保生命值不為負
-                    self.player1.last_hit_time = current_time_ticks # 用於UI閃爍
-                    self.freeze_timer = current_time_ticks
-                    done = True
-                    info['scorer'] = 'player1'
-                    if DEBUG_ENV: print(f"[PongDuelEnv.step] Player 1 scored! Opponent lives: {self.opponent.lives}")
-                elif self.ball_y + self.ball_radius_normalized > 1.0: # 球觸及或越過底部邊界 (對手得分)
-                    if self.player1.lives > 0: self.player1.lives -= 1
-                    self.opponent.last_hit_time = current_time_ticks # 用於UI閃爍
-                    self.freeze_timer = current_time_ticks
-                    done = True
-                    info['scorer'] = 'opponent'
-                    if DEBUG_ENV: print(f"[PongDuelEnv.step] Opponent scored! Player 1 lives: {self.player1.lives}")
-        
-        if done and DEBUG_ENV:
-            print(f"[SKILL_DEBUG][PongDuelEnv.step] Round ended by NORMAL physics. Scorer: {info.get('scorer')}. P1 Lives: {self.player1.lives}, Opponent Lives: {self.opponent.lives}")
-
-        game_over = self.player1.lives <= 0 or self.opponent.lives <= 0
-        if game_over and done and DEBUG_ENV: # 只有在回合結束時才判斷遊戲是否結束
-            print(f"[SKILL_DEBUG][PongDuelEnv.step] GAME OVER by NORMAL physics detected.")
-        
-        return self._get_obs(), reward, done, game_over, info
+        return self._get_obs(), reward, final_round_done, final_game_over, final_info_to_return
 
     def render(self):
         if self.renderer is None:
