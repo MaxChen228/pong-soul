@@ -177,6 +177,8 @@ class PongDuelEnv:
         self.bounces = 0
         self.spin = 0
         self.trail.clear()
+        self.ball_visual_key = "default"
+        self.active_ball_visual_skill_owner = None
 
         angle_deg = random.uniform(*self.initial_angle_range_deg)
         angle_rad = np.radians(angle_deg)
@@ -213,6 +215,8 @@ class PongDuelEnv:
         if DEBUG_ENV: print("[SKILL_DEBUG][PongDuelEnv.reset] Full reset triggered.")
         self.player1.reset_state()
         self.opponent.reset_state()
+        self.ball_visual_key = "default"
+        self.active_ball_visual_skill_owner = None
         self.reset_ball_after_score(scored_by_player1=random.choice([True, False]))
         self.time_scale = 1.0
         return self._get_obs(), {}
