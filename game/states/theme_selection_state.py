@@ -11,6 +11,8 @@ class ThemeSelectionState(BaseState):
         super().__init__(game_app)
         self.available_themes = get_available_theme_names()
         self.selected_index = 0
+        self.item_rects = [] # <--- 新增：用於儲存每個選項的 Rect
+
         try:
             # 嘗試將當前主題設為預選中項
             current_theme_name = GameSettings.ACTIVE_THEME_NAME
@@ -35,15 +37,15 @@ class ThemeSelectionState(BaseState):
     def on_enter(self, previous_state_data=None):
         super().on_enter(previous_state_data)
         
-        # 更新可用主題列表和當前選中項 (以防主題列表在運行時被修改，雖然目前不會)
+        # 更新可用主題列表和當前選中項
         self.available_themes = get_available_theme_names()
         try:
             current_theme_name = GameSettings.ACTIVE_THEME_NAME
             if current_theme_name in self.available_themes:
                 self.selected_index = self.available_themes.index(current_theme_name)
-            else: # 如果當前設定的主題名不在可用列表中，預設選第一個
+            else: 
                 self.selected_index = 0
-                if self.available_themes: # 避免列表為空
+                if self.available_themes: 
                      GameSettings.set_active_theme(self.available_themes[0])
 
         except Exception as e:
@@ -52,11 +54,12 @@ class ThemeSelectionState(BaseState):
             self.selected_index = 0
             if self.available_themes: GameSettings.set_active_theme(self.available_themes[0])
 
+        # <--- 新增：根據主題數量初始化 item_rects 列表
+        self.item_rects = [None] * len(self.available_themes)
 
-        # 從 persistent_data 中獲取是從哪個狀態跳轉過來的
         self.previous_state_name = self.persistent_data.get(
             "previous_state_for_theme_selection", 
-            self.game_app.GameFlowStateName.SETTINGS_MENU # 預設返回到設定選單
+            self.game_app.GameFlowStateName.SETTINGS_MENU 
         )
 
         scaled_title_font_size = int(Style.TITLE_FONT_SIZE * self.scale_factor)
@@ -71,17 +74,41 @@ class ThemeSelectionState(BaseState):
 
         if DEBUG_THEME_SELECT_STATE:
             print(f"[State:ThemeSelection] Entered. Scale: {self.scale_factor:.2f}, RenderArea: {self.render_area}")
-            print(f"    Current selected theme index: {self.selected_index} ('{self.available_themes[self.selected_index] if self.available_themes else 'N/A'}')")
+            print(f"    Current selected theme index: {self.selected_index} ('{self.available_themes[self.selected_index] if self.available_themes and self.selected_index < len(self.available_themes) else 'N/A'}')")
             print(f"    Previous state to return to: {self.previous_state_name}")
 
 
     def handle_event(self, event):
-        if not self.available_themes: # 如果沒有主題可選
+        if not self.available_themes: 
             if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
                 self.game_app.sound_manager.play_click()
                 self.request_state_change(self.previous_state_name)
             return
 
+        # --- 滑鼠事件處理 ---
+        if event.type == pygame.MOUSEMOTION:
+            for i, rect in enumerate(self.item_rects):
+                if rect and rect.collidepoint(event.pos):
+                    if self.selected_index != i: # 只有在選項改變時才播放音效和更新
+                        self.selected_index = i
+                        # self.game_app.sound_manager.play_click() # 懸停時通常不播放音效，或用不同音效
+                    break 
+        elif event.type == pygame.MOUSEBUTTONDOWN:
+            if event.button == 1: # 左鍵點擊
+                for i, rect in enumerate(self.item_rects):
+                    if rect and rect.collidepoint(event.pos):
+                        self.selected_index = i # 確保點擊的項目是選中項目
+                        self.game_app.sound_manager.play_click()
+                        selected_theme_name = self.available_themes[self.selected_index]
+                        
+                        if DEBUG_THEME_SELECT_STATE:
+                            print(f"[State:ThemeSelection] Mouse clicked, applying theme: {selected_theme_name}")
+                        
+                        GameSettings.set_active_theme(selected_theme_name)
+                        self.request_state_change(self.previous_state_name)
+                        return # 事件已處理
+
+        # --- 鍵盤事件處理 ---
         if event.type == pygame.KEYDOWN:
             if event.key == pygame.K_DOWN:
                 self.selected_index = (self.selected_index + 1) % len(self.available_themes)
@@ -89,21 +116,17 @@ class ThemeSelectionState(BaseState):
             elif event.key == pygame.K_UP:
                 self.selected_index = (self.selected_index - 1 + len(self.available_themes)) % len(self.available_themes)
                 self.game_app.sound_manager.play_click()
-            elif event.key == pygame.K_RETURN: # 確認選擇
+            elif event.key == pygame.K_RETURN: 
                 self.game_app.sound_manager.play_click()
                 selected_theme_name = self.available_themes[self.selected_index]
                 
                 if DEBUG_THEME_SELECT_STATE:
-                    print(f"[State:ThemeSelection] Applying theme: {selected_theme_name}")
+                    print(f"[State:ThemeSelection] Enter key, applying theme: {selected_theme_name}")
                 
                 GameSettings.set_active_theme(selected_theme_name)
-                # 主題已應用，字型等會自動重載。
-                # 不需要做其他事情，可以直接返回或停留在當前選單讓玩家看到效果。
-                # 為了更好的用戶體驗，我們在應用後短暫停留或直接返回。
-                # 這裡我們選擇直接返回到上一個狀態 (SettingsMenuState)。
                 self.request_state_change(self.previous_state_name)
 
-            elif event.key == pygame.K_ESCAPE: # 取消並返回
+            elif event.key == pygame.K_ESCAPE: 
                 self.game_app.sound_manager.play_click()
                 if DEBUG_THEME_SELECT_STATE: print(f"[State:ThemeSelection] ESC pressed, returning to {self.previous_state_name}.")
                 self.request_state_change(self.previous_state_name)
@@ -112,14 +135,14 @@ class ThemeSelectionState(BaseState):
         pass
 
     def render(self, surface):
-        pygame.draw.rect(surface, Style.BACKGROUND_COLOR, self.render_area) # 使用當前主題背景色
+        pygame.draw.rect(surface, Style.BACKGROUND_COLOR, self.render_area) 
         if not self.font_title or not self.font_item or not self.font_subtitle:
             return
 
         title_x = self.render_area.left + int(Style.TITLE_POS[0] * self.scale_factor)
         title_y = self.render_area.top + int(Style.TITLE_POS[1] * self.scale_factor)
         subtitle_x = self.render_area.left + int(Style.SUBTITLE_POS[0] * self.scale_factor)
-        subtitle_y = title_y + self.font_title.get_height() + int(5 * self.scale_factor) # 副標題在主標題下方
+        subtitle_y = title_y + self.font_title.get_height() + int(5 * self.scale_factor)
 
         item_start_x_base = int(Style.ITEM_START_POS[0] * self.scale_factor)
         item_start_y_base = subtitle_y + self.font_subtitle.get_height() + int(Style.ITEM_LINE_SPACING * 0.5 * self.scale_factor)
@@ -128,7 +151,7 @@ class ThemeSelectionState(BaseState):
         title_surf = self.font_title.render("Select Theme", True, Style.TEXT_COLOR)
         surface.blit(title_surf, (title_x, title_y))
         
-        subtitle_text = "(UP/DOWN, ENTER to apply, ESC to back)"
+        subtitle_text = "(UP/DOWN/Mouse, ENTER/Click to apply, ESC to back)" # <--- 修改提示文字
         subtitle_surf = self.font_subtitle.render(subtitle_text, True, Style.TEXT_COLOR)
         surface.blit(subtitle_surf, (subtitle_x, subtitle_y))
 
@@ -141,15 +164,25 @@ class ThemeSelectionState(BaseState):
 
         current_item_y = item_start_y_base
         for i, theme_name in enumerate(self.available_themes):
-            is_currently_active = (theme_name == GameSettings.ACTIVE_THEME_NAME) # 檢查是否為當前全局生效的主題
+            is_currently_active = (theme_name == GameSettings.ACTIVE_THEME_NAME) 
             
             display_name = theme_name
             if is_currently_active:
-                display_name += " (Active)" # 標記當前生效的主題
+                display_name += " (Active)" 
             
             color = Style.PLAYER_COLOR if i == self.selected_index else Style.TEXT_COLOR
             text_surf = self.font_item.render(display_name, True, color)
             
             item_x = self.render_area.left + item_start_x_base
+            
+            # <--- 新增：計算並儲存每個選項的 Rect ---
+            # 確保 self.item_rects 的長度與 self.available_themes 一致
+            if i < len(self.item_rects):
+                # text_surf.get_rect() 創建的是相對於 (0,0) 的 rect
+                # 我們需要將其移動到實際的繪製位置
+                item_rect = text_surf.get_rect(topleft=(item_x, current_item_y))
+                self.item_rects[i] = item_rect 
+            # <--- Rect 計算結束 ---
+
             surface.blit(text_surf, (item_x, current_item_y))
             current_item_y += scaled_line_spacing
