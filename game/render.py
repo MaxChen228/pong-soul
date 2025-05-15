@@ -422,7 +422,7 @@ class Renderer:
             # --- 球圖像選擇結束 ---
 
             spin_for_this_view = -ball_spin if is_top_player_perspective else ball_spin
-            self.ball_angle = (self.ball_angle + spin_for_this_view * 10) % 360 
+            self.ball_angle = (self.ball_angle + spin_for_this_view * 100) % 360 
 
             rotated_ball = pygame.transform.rotate(current_ball_render_image_scaled, self.ball_angle)
             ball_rect = rotated_ball.get_rect(center=(ball_center_x_scaled, ball_center_y_scaled))

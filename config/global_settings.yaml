@@ -39,6 +39,9 @@ ball_behavior:
 theme:
   active_theme_name: "Chinese Traditional" # 您目前活躍的主題
 
+renderer: # 您可以選擇將其放在 gameplay 或 ball_behavior 下，如果覺得更合適
+  visual_spin_multiplier: 80 # 預設視覺旋轉乘數，您可以設定為您想要的值，例如 10, 15, 20 等
+
 # 更多您可以考慮加入的參數:
 # screen:
 #   default_width: 800 # 邏輯寬度 (如果選單等使用固定邏輯尺寸)
