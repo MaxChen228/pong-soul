@@ -2,7 +2,7 @@
 import pygame
 from game.states.base_state import BaseState
 from game.theme import Style
-# from main import GameFlowStateName # GameApp 實例會傳遞 GameFlowStateName 枚舉
+from game.constants import DEFAULT_MENU_CONTROLS
 
 DEBUG_MENU_STATE = True
 
@@ -20,12 +20,7 @@ class SelectSkillPvaState(BaseState):
         self.font_subtitle = None
         self.font_item = None
 
-        self.key_map = {
-            'UP': pygame.K_UP,
-            'DOWN': pygame.K_DOWN,
-            'CONFIRM': pygame.K_RETURN,
-            'CANCEL': pygame.K_ESCAPE 
-        }
+        self.key_map = DEFAULT_MENU_CONTROLS
         self.player_identifier = "Player" 
 
         if DEBUG_MENU_STATE: print(f"[State:SelectSkillPva] Initialized.")

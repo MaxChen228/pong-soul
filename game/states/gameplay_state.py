@@ -11,15 +11,8 @@ from envs.pong_duel_env import PongDuelEnv # 遊戲環境
 from game.ai_agent import AIAgent         # AI 代理
 from game.level import LevelManager       # 關卡管理器
 from utils import resource_path           # 資源路徑輔助函數
-# from main import GameFlowStateName      # 避免循環導入
+from game.constants import P1_GAME_CONTROLS, P2_GAME_CONTROLS
 
-# 按鍵映射 (從 main.py 複製過來，理想情況是共享)
-P1_GAME_KEYS = {
-    'LEFT_KB': pygame.K_LEFT, 'RIGHT_KB': pygame.K_RIGHT, 'SKILL_KB': pygame.K_x,
-}
-P2_GAME_KEYS = {
-    'LEFT': pygame.K_j, 'RIGHT': pygame.K_l, 'SKILL': pygame.K_u
-}
 
 DEBUG_GAMEPLAY_STATE = True
 
@@ -319,8 +312,8 @@ class GameplayState(BaseState):
         p1_ingame_action = 1
 
         if self.current_input_mode == "keyboard":
-            if keys[P1_GAME_KEYS['LEFT_KB']]: p1_ingame_action = 0
-            elif keys[P1_GAME_KEYS['RIGHT_KB']]: p1_ingame_action = 2
+            if keys[P1_GAME_CONTROLS['LEFT_KB']]: p1_ingame_action = 0
+            elif keys[P1_GAME_CONTROLS['RIGHT_KB']]: p1_ingame_action = 2
         elif self.current_input_mode == "mouse" and self.current_game_mode == GameSettings.GameMode.PLAYER_VS_AI:
             mouse_x_abs, mouse_y_abs = pygame.mouse.get_pos()
             logical_mouse_x = -1
@@ -340,16 +333,16 @@ class GameplayState(BaseState):
                 if logical_mouse_x < self.env.player1.x - threshold: p1_ingame_action = 0
                 elif logical_mouse_x > self.env.player1.x + threshold: p1_ingame_action = 2
         
-        if keys[P1_GAME_KEYS['SKILL_KB']]:
+        if keys[P1_GAME_CONTROLS['SKILL_KB']]:
             self.env.activate_skill(self.env.player1)
 
         opponent_ingame_action = 1
         if self.current_game_mode == GameSettings.GameMode.PLAYER_VS_AI:
             if self.ai_agent: opponent_ingame_action = self.ai_agent.select_action(self.obs.copy())
         else: # PvP
-            if keys[P2_GAME_KEYS['LEFT']]: opponent_ingame_action = 0
-            elif keys[P2_GAME_KEYS['RIGHT']]: opponent_ingame_action = 2
-            if keys[P2_GAME_KEYS['SKILL']]:
+            if keys[P2_GAME_CONTROLS['LEFT']]: opponent_ingame_action = 0
+            elif keys[P2_GAME_CONTROLS['RIGHT']]: opponent_ingame_action = 2
+            if keys[P2_GAME_CONTROLS['SKILL']]:
                 self.env.activate_skill(self.env.opponent)
         
         self.obs, reward, round_done, game_over, info = self.env.step(p1_ingame_action, opponent_ingame_action)

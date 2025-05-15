@@ -2,18 +2,10 @@
 import pygame
 from game.states.base_state import BaseState
 from game.theme import Style
+from game.constants import P1_MENU_CONTROLS, DEFAULT_MENU_CONTROLS
 # from main import GameFlowStateName # GameApp 實例會傳遞 GameFlowStateName 枚舉
 
 DEBUG_MENU_STATE = True
-
-# 這些常數特定於 PvP 技能選擇，所以暫時放在這裡
-# 後續可以考慮移到 game/constants.py
-P1_MENU_KEYS = {
-    'UP': pygame.K_w, 'DOWN': pygame.K_s, 'CONFIRM': pygame.K_e, 'CANCEL': pygame.K_q
-}
-DEFAULT_MENU_KEYS = { # P2 使用預設按鍵
-    'UP': pygame.K_UP, 'DOWN': pygame.K_DOWN, 'CONFIRM': pygame.K_RETURN, 'CANCEL': pygame.K_ESCAPE
-}
 
 class RunPvpSkillSelectionState(BaseState):
     def __init__(self, game_app):
@@ -69,7 +61,7 @@ class RunPvpSkillSelectionState(BaseState):
             print(f"    Shared data: GameMode='{self.game_app.shared_game_data.get('selected_game_mode')}'")
 
     def _get_current_key_map(self):
-        return P1_MENU_KEYS if self.current_selecting_player == 1 else DEFAULT_MENU_KEYS
+        return P1_MENU_CONTROLS if self.current_selecting_player == 1 else DEFAULT_MENU_CONTROLS
 
     def handle_event(self, event):
         if self.current_selecting_player == 0: 
@@ -195,7 +187,7 @@ class RunPvpSkillSelectionState(BaseState):
                          scaled_divider_thickness)
 
         if self.current_selecting_player == 1: 
-            self._draw_skill_list(surface, "Player 1", p1_skill_select_sub_area, self.p1_selected_index, P1_MENU_KEYS)
+            self._draw_skill_list(surface, "Player 1", p1_skill_select_sub_area, self.p1_selected_index, P1_MENU_CONTROLS)
             pygame.draw.rect(surface, Style.BACKGROUND_COLOR, p2_skill_select_sub_area) 
             if self.font_info:
                 wait_text = self.font_info.render("Player 2 Waiting...", True, Style.TEXT_COLOR)
@@ -214,7 +206,7 @@ class RunPvpSkillSelectionState(BaseState):
                 p1_confirm_rect = p1_confirm_text.get_rect(center=p1_skill_select_sub_area.center)
                 surface.blit(p1_confirm_text, p1_confirm_rect)
 
-            self._draw_skill_list(surface, "Player 2", p2_skill_select_sub_area, self.p2_selected_index, DEFAULT_MENU_KEYS)
+            self._draw_skill_list(surface, "Player 2", p2_skill_select_sub_area, self.p2_selected_index, DEFAULT_MENU_CONTROLS)
 
         elif self.current_selecting_player == 0: 
             if self.p1_skill_code and self.p2_skill_code and self.font_large_ready:
