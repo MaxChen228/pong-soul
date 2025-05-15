@@ -1,0 +1,52 @@
+# config/skills_config.yaml
+
+slowmo:
+  duration_ms: 3000
+  cooldown_ms: 5000
+  paddle_color: [0, 150, 255]
+  fog_duration_ms: 2000 # From SKILL_CONFIGS.py
+  trail_color: [0, 200, 255]
+  # bar_color: [0, 200, 255] # UI related, from SKILL_CONFIGS.py
+  clock_color: [255, 255, 255, 100]
+  clock_radius: 50 # From SKILL_CONFIGS.py (used as clock_radius_logic_px in skill)
+  clock_line_width: 4 # From SKILL_CONFIGS.py (used as clock_line_width_logic_px in skill)
+  # --- Parameters from SlowMoSkill that were in its internal default cfg if not in SKILL_CONFIGS ---
+  # These should now be taken from above if they map, or skill uses internal defaults if still not present.
+  slow_time_scale: 0.2 # Not in SKILL_CONFIGS.py under 'slowmo', skill will use its own default if not found by key
+  fadeout_duration_ms: 1500 # Not in SKILL_CONFIGS.py under 'slowmo'
+  shockwave_expand_speed_logic_px: 15 # Not in SKILL_CONFIGS.py under 'slowmo'
+
+long_paddle:
+  duration_ms: 3000
+  cooldown_ms: 5000
+  paddle_color: [0, 255, 100]
+  paddle_multiplier: 2.0 # SKILL_CONFIGS.py has 2 (int)
+  animation_ms: 300
+  # bar_color: [0, 100, 0] # UI related
+
+soul_eater_bug: # Values from SKILL_CONFIGS.py
+  duration_ms: 8000
+  cooldown_ms: 1000 # This is very short from SKILL_CONFIGS.py, skill internal default is 12000.
+  # bar_color: [150, 50, 200] # UI related
+  bug_image_path: "assets/soul_eater_bug.png"
+  bug_display_scale_factor: 2.0 # SKILL_CONFIGS.py has 2 (int)
+
+  sound_activate: "assets/bug_activate.mp3"
+  sound_crawl: "assets/bug_crawl.mp3"
+  sound_hit_paddle: "assets/bug_hit_paddle.mp3"
+  sound_score: "assets/bug_score.mp3"
+
+  base_y_speed: 0.025
+  # y_random_magnitude: 0.008 # Not in SKILL_CONFIGS.py for soul_eater_bug
+  x_random_walk_speed: 0.025 # Not in SKILL_CONFIGS.py for soul_eater_bug (but skill has its own default)
+  target_update_interval_frames: 10
+  goal_seeking_factor: 0.12
+  dodge_factor: 0.12
+
+  can_rest: true
+  rest_chance_after_target_update: 0.6
+  min_rest_duration_seconds: 0.1
+  max_rest_duration_seconds: 0.2
+  y_movement_dampening_during_rest: 0.0
+  # x_movement_dampening_during_rest: 0.0 # Not in SKILL_CONFIGS.py for soul_eater_bug
+  small_drift_during_rest_factor: 0.007

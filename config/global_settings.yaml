@@ -1,10 +1,5 @@
 # config/global_settings.yaml
 
-# === 遊戲模式定義 ===
-# GameMode: # 類別定義不適合放在 YAML，這部分保留在 GameSettings.py 中
-#   PLAYER_VS_AI: "PVA"
-#   PLAYER_VS_PLAYER: "PVP"
-
 # === 音量設定 ===
 audio:
   background_music_volume: 0.2
@@ -12,10 +7,33 @@ audio:
   countdown_sound_volume: 0.7
   slowmo_sound_volume: 1.0 # 這個未來也可以考慮移到技能設定中
 
-# === 其他全域參數 ===
+# === 遊戲全域參數 ===
 gameplay:
   freeze_duration_ms: 500
   countdown_seconds: 3
+  player_move_speed: 0.03  # 新增：玩家移動速度 (正規化)
+  max_trail_length: 20     # 新增：球的拖尾最大長度
+
+  # 新增區塊：用於 PongDuelEnv 的預設通用配置
+  # 這些值主要在 PongDuelEnv 初始化時，如果 common_config 未提供相應鍵時使用
+  # 關卡特定的 YAML 檔案中的值會覆蓋這些預設值
+  defaults:
+    mass: 1.0
+    e_ball_paddle: 1.0  # 球與球拍的碰撞恢復係數
+    mu_ball_paddle: 0.4 # 球與球拍的摩擦係數
+    enable_spin: true
+    speed_increment: 0.002 # 每次難度調整時的速度增加量
+    speed_scale_every: 3   # 每多少次反彈調整一次難度 (增加球速)
+
+# === 物理特性預設 ===
+physics:
+  magnus_factor: 0.01 # 馬格努斯力係數
+
+# === 球的初始行為預設 ===
+ball_behavior:
+  initial_speed: 0.01           # 球的初始速度 (正規化)
+  initial_angle_deg_range: [-60, 60] # 球的初始角度範圍 (度)
+  initial_direction_serves_down: true # 預設發球方向是否向下 (P1 在下，AI/P2 在上)
 
 # === 主題設定 ===
 theme:

@@ -5,10 +5,10 @@ import random
 import math
 
 from game.theme import Style
-from game.physics import collide_sphere_with_moving_plane 
+from game.physics import collide_sphere_with_moving_plane
 from game.sound import SoundManager
 from game.render import Renderer # Renderer 將被修改
-from game.settings import GameSettings
+from game.settings import GameSettings # <--- 確保 GameSettings 已導入
 from game.player_state import PlayerState
 
 from game.skills.long_paddle_skill import LongPaddleSkill
@@ -16,18 +16,18 @@ from game.skills.slowmo_skill import SlowMoSkill
 from game.skills.soul_eater_bug_skill import SoulEaterBugSkill
 
 DEBUG_ENV = True
-DEBUG_ENV_FULLSCREEN = True # ⭐️ 新增排錯開關
+DEBUG_ENV_FULLSCREEN = True
 
 class PongDuelEnv:
     def __init__(self,
                  game_mode=GameSettings.GameMode.PLAYER_VS_AI,
                  player1_config=None,
                  opponent_config=None,
-                 common_config=None,
-                 render_size=400, # ⭐️ 這將是邏輯渲染尺寸
-                 paddle_height_px=10, # ⭐️ 邏輯球拍高度
-                 ball_radius_px=10,   # ⭐️ 邏輯球半徑
-                 initial_main_screen_surface_for_renderer=None # ⭐️ 新增參數
+                 common_config=None, # common_config 仍然可以由 GameplayState 傳入，但我們會優先使用它的值，然後才是 GameSettings 的預設
+                 render_size=400,
+                 paddle_height_px=10,
+                 ball_radius_px=10,
+                 initial_main_screen_surface_for_renderer=None
                 ):
 
         if DEBUG_ENV: print(f"[SKILL_DEBUG][PongDuelEnv.__init__] Initializing with game_mode: {game_mode}")
@@ -36,18 +36,15 @@ class PongDuelEnv:
 
         self.game_mode = game_mode
         self.sound_manager = SoundManager()
-        self.renderer = None # Renderer 將在第一次調用 render() 時創建
-        self.render_size = render_size # 儲存邏輯渲染尺寸
+        self.renderer = None
+        self.render_size = render_size
         self.paddle_height_px = paddle_height_px
         self.ball_radius_px = ball_radius_px
         
-        # ⭐️ 將提供的 main_screen surface 儲存起來，以便傳遞給 Renderer
         self.provided_main_screen_surface = initial_main_screen_surface_for_renderer
 
-        # 正規化尺寸是基於邏輯 render_size
         self.paddle_height_normalized = self.paddle_height_px / self.render_size if self.render_size > 0 else 0
         self.ball_radius_normalized = self.ball_radius_px / self.render_size if self.render_size > 0 else 0
-
 
         default_p_config = {'initial_x': 0.5, 'initial_paddle_width': 60, 'initial_lives': 3, 'skill_code': None, 'is_ai': False}
         p1_conf = player1_config if player1_config else default_p_config.copy()
@@ -55,20 +52,20 @@ class PongDuelEnv:
 
         self.player1 = PlayerState(
             initial_x=p1_conf.get('initial_x', 0.5),
-            initial_paddle_width=p1_conf.get('initial_paddle_width', 60), # 這是邏輯寬度
+            initial_paddle_width=p1_conf.get('initial_paddle_width', 60),
             initial_lives=p1_conf.get('initial_lives', 3),
             skill_code=p1_conf.get('skill_code'),
             is_ai=p1_conf.get('is_ai', False),
-            env_render_size=self.render_size, # PlayerState 也需要邏輯 render_size
+            env_render_size=self.render_size,
             player_identifier="player1"
         )
         self.opponent = PlayerState(
             initial_x=opp_conf.get('initial_x', 0.5),
-            initial_paddle_width=opp_conf.get('initial_paddle_width', 60), # 這是邏輯寬度
+            initial_paddle_width=opp_conf.get('initial_paddle_width', 60),
             initial_lives=opp_conf.get('initial_lives', 3),
             skill_code=opp_conf.get('skill_code'),
             is_ai=opp_conf.get('is_ai', game_mode == GameSettings.GameMode.PLAYER_VS_AI),
-            env_render_size=self.render_size, # PlayerState 也需要邏輯 render_size
+            env_render_size=self.render_size,
             player_identifier="opponent"
         )
 
@@ -84,32 +81,43 @@ class PongDuelEnv:
         self.freeze_timer = 0
         self.time_scale = 1.0
 
+        # 如果 GameplayState 沒有傳遞 common_config，則 cfg 為空字典
         cfg = common_config if common_config else {}
-        self.mass = cfg.get('mass', 1.0)
-        self.e_ball_paddle = cfg.get('e_ball_paddle', 1.0)
-        self.mu_ball_paddle = cfg.get('mu_ball_paddle', 0.4)
-        self.enable_spin = cfg.get('enable_spin', True)
-        self.magnus_factor = cfg.get('magnus_factor', 0.01)
-        self.speed_increment = cfg.get('speed_increment', 0.002)
-        self.speed_scale_every = cfg.get('speed_scale_every', 3)
-        self.initial_ball_speed = cfg.get('initial_ball_speed', 0.02)
-        self.initial_angle_range_deg = cfg.get('initial_angle_deg_range', [-60, 60]) # 保持原樣，之前是 initial_angle_deg_range
-        self.initial_direction_serves_down = cfg.get('initial_direction_serves_down', True) # 假設P1在下，AI/P2在上
+
+        # 現在從 common_config (如果提供) 或 GameSettings 的預設值獲取參數
+        # GameSettings 的值作為最終的備用
+        self.mass = cfg.get('mass', GameSettings.ENV_DEFAULT_MASS)
+        self.e_ball_paddle = cfg.get('e_ball_paddle', GameSettings.ENV_DEFAULT_E_BALL_PADDLE)
+        self.mu_ball_paddle = cfg.get('mu_ball_paddle', GameSettings.ENV_DEFAULT_MU_BALL_PADDLE)
+        self.enable_spin = cfg.get('enable_spin', GameSettings.ENV_DEFAULT_ENABLE_SPIN)
+        self.magnus_factor = cfg.get('magnus_factor', GameSettings.PHYSICS_MAGNUS_FACTOR) # 移至 physics 組
+        self.speed_increment = cfg.get('speed_increment', GameSettings.ENV_DEFAULT_SPEED_INCREMENT)
+        self.speed_scale_every = cfg.get('speed_scale_every', GameSettings.ENV_DEFAULT_SPEED_SCALE_EVERY)
+        
+        # 球的初始行為參數，優先使用關卡 YAML 中的，然後是 common_config，最後是 GameSettings
+        self.initial_ball_speed = cfg.get('initial_speed', GameSettings.BALL_INITIAL_SPEED)
+        self.initial_angle_range_deg = cfg.get('initial_angle_deg_range', GameSettings.BALL_INITIAL_ANGLE_DEG_RANGE)
+        # initial_direction_serves_down 在 reset_ball_after_score 中使用，但其預設值也應來自 GameSettings
+        # GameplayState 中的 GameplayState.on_enter() 會從關卡 YAML 讀取 level_specific_config 並更新 common_game_config
+        # 所以這裡的 GameSettings.BALL_INITIAL_DIRECTION_SERVES_DOWN 主要是作為一個絕對備用
+        # self.initial_direction_serves_down = cfg.get('initial_direction', GameSettings.BALL_INITIAL_DIRECTION_SERVES_DOWN)
+        # ^^^ 這個屬性主要在 reset_ball_after_score 中用於邏輯判斷，不在這裡直接賦值給 self。
+        # 它的值應在 GameplayState 構建 common_config 時就已確定。
 
         self.freeze_duration = cfg.get('freeze_duration_ms', GameSettings.FREEZE_DURATION_MS)
         self.countdown_seconds = cfg.get('countdown_seconds', GameSettings.COUNTDOWN_SECONDS)
-        self.bg_music = cfg.get("bg_music", "bg_music_level1.mp3") # 從 common_config 中獲取
+        self.bg_music = cfg.get("bg_music", "bg_music_level1.mp3")
 
         self.trail = []
-        self.ball_visual_key = "default" # 球的當前視覺類型鍵名 ("default", "soul_eater_bug", etc.)
-        self.active_ball_visual_skill_owner = None # 記錄是哪個玩家的技能正在覆蓋球的視覺
-        self.max_trail_length = 20 # 拖尾長度
+        self.ball_visual_key = "default"
+        self.active_ball_visual_skill_owner = None
+        self.max_trail_length = GameSettings.MAX_TRAIL_LENGTH # <--- 從 GameSettings 讀取
 
         self.round_concluded_by_skill = False
-        self.current_round_info = {} # 用於技能回傳的回合信息
+        self.current_round_info = {}
 
         if DEBUG_ENV: print("[SKILL_DEBUG][PongDuelEnv.__init__] Env Initialization complete (skills linked).")
-        self.reset() # 調用 reset 以初始化球的狀態等
+        self.reset()
 
     def _create_skill(self, skill_code, owner_player_state):
         if not skill_code or skill_code.lower() == 'none':
@@ -134,24 +142,18 @@ class PongDuelEnv:
             return None
         
     def set_ball_visual_override(self, skill_identifier: str, active: bool, owner_identifier: str = None):
-        """
-        由技能調用，以請求改變球的視覺外觀。
-        owner_identifier 用於處理多個技能可能嘗試同時影響球視覺的情況 (雖然目前不太可能)。
-        """
         if DEBUG_ENV: 
             print(f"[SKILL_DEBUG][PongDuelEnv.set_ball_visual_override] Called by skill '{skill_identifier}', active: {active}, owner: {owner_identifier}")
 
         if active:
-            # 如果目前沒有其他技能覆蓋，或者請求的技能與當前覆蓋的技能擁有者相同
             if self.active_ball_visual_skill_owner is None or self.active_ball_visual_skill_owner == owner_identifier:
-                self.ball_visual_key = skill_identifier # 例如 "soul_eater_bug"
+                self.ball_visual_key = skill_identifier
                 self.active_ball_visual_skill_owner = owner_identifier
                 if DEBUG_ENV: print(f"    Ball visual set to '{self.ball_visual_key}' by {owner_identifier}.")
-            else: # 其他玩家的技能正在覆蓋
+            else:
                 if DEBUG_ENV: print(f"    Ball visual override IGNORED. Currently overridden by {self.active_ball_visual_skill_owner}'s skill.")
         else:
-            # 只有當取消請求來自當前正在覆蓋視覺的技能擁有者時，才恢復預設
-            if self.active_ball_visual_skill_owner == owner_identifier or self.ball_visual_key == skill_identifier: # 後一個條件是為了處理擁有者未正確傳遞的情況
+            if self.active_ball_visual_skill_owner == owner_identifier or self.ball_visual_key == skill_identifier:
                 self.ball_visual_key = "default"
                 self.active_ball_visual_skill_owner = None
                 if DEBUG_ENV: print(f"    Ball visual restored to 'default'. Previous owner: {owner_identifier}")
@@ -180,29 +182,23 @@ class PongDuelEnv:
         self.ball_visual_key = "default"
         self.active_ball_visual_skill_owner = None
 
+        # initial_angle_range_deg 應從 self 獲取 (已在 __init__ 中設定)
         angle_deg = random.uniform(*self.initial_angle_range_deg)
         angle_rad = np.radians(angle_deg)
         
-        # 根據誰得分決定發球方向和位置
-        # 如果 P1 得分 (scored_by_player1=True)，則球從 P2 (上方) 區域發出，向下運動
-        # 如果 P2/AI 得分 (scored_by_player1=False)，則球從 P1 (下方) 區域發出，向上運動
-        serve_from_top_area = scored_by_player1 # P1得分，對手從頂部發球
+        serve_from_top_area = scored_by_player1
         
-        if serve_from_top_area: # 從頂部 (P2/AI) 區域發球
+        if serve_from_top_area:
             self.ball_y = self.paddle_height_normalized + self.ball_radius_normalized + 0.05
-            vy_sign = 1 # 向下為正 (如果 Y 軸 0 在頂部，1 在底部)
-        else: # 從底部 (P1) 區域發球
+            vy_sign = 1
+        else:
             self.ball_y = 1.0 - self.paddle_height_normalized - self.ball_radius_normalized - 0.05
-            vy_sign = -1 # 向上為負
+            vy_sign = -1
 
-        # 球的初始速度方向也需要根據發球區域調整
-        # 如果是從 P1 (下方) 發球向上，且 initial_direction_serves_down = True (預設球向下發)，則 vy_sign 需反轉。
-        # 簡化：vy_sign 已經決定了球的垂直運動方向。cos(angle_rad) 通常為正。
-        
         self.ball_x = 0.5
+        # initial_ball_speed 應從 self 獲取 (已在 __init__ 中設定)
         self.ball_vx = self.initial_ball_speed * np.sin(angle_rad)
         self.ball_vy = self.initial_ball_speed * np.cos(angle_rad) * vy_sign
-
 
         if self.player1.skill_instance and self.player1.skill_instance.is_active():
             if DEBUG_ENV: print(f"[SKILL_DEBUG][PongDuelEnv.reset_ball_after_score] Deactivating P1 skill: {self.player1.skill_instance.__class__.__name__}")
@@ -217,7 +213,19 @@ class PongDuelEnv:
         self.opponent.reset_state()
         self.ball_visual_key = "default"
         self.active_ball_visual_skill_owner = None
-        self.reset_ball_after_score(scored_by_player1=random.choice([True, False]))
+        
+        # 決定發球方時，考慮 GameSettings 中的 initial_direction_serves_down
+        # 但 GameplayState 在準備 common_config 時，如果關卡 YAML 有 initial_direction，會覆蓋它。
+        # 如果 GameplayState 傳入的 common_config 中有 initial_direction，則優先使用它。
+        # 否則，使用 GameSettings.BALL_INITIAL_DIRECTION_SERVES_DOWN。
+        # 這裡的 initial_direction_serves_down 決定了第一次 reset 時球是向上還是向下發。
+        # (此處的實現保持原樣：隨機發球)
+        serves_down_first = GameSettings.BALL_INITIAL_DIRECTION_SERVES_DOWN # 從設定讀取預設
+        # 如果 common_config (即 self.initial_direction_serves_down，如果存在) 中有指定，會覆蓋
+        # 這裡我們簡化為，reset() 時的發球方向不由 scored_by_player1 決定，而是由一個配置決定
+        self.reset_ball_after_score(scored_by_player1=not serves_down_first if serves_down_first else random.choice([True,False]))
+
+
         self.time_scale = 1.0
         return self._get_obs(), {}
 
@@ -226,20 +234,15 @@ class PongDuelEnv:
             self.ball_x, self.ball_y,
             self.ball_vx, self.ball_vy,
             self.player1.x, self.opponent.x,
-            # 可以考慮加入更多狀態，如技能冷卻時間、球拍寬度等，如果AI需要這些信息
-            # self.player1.paddle_width_normalized, self.opponent.paddle_width_normalized,
-            # self.player1.skill_instance.get_energy_ratio() if self.player1.skill_instance else 0.0,
         ]
         return np.array(obs_array, dtype=np.float32)
     
     def _determine_time_scale(self):
-        """根據啟用的 SlowMo 技能決定當前的 time_scale。"""
         current_time_scale = 1.0
         active_slowmo_skill = None
         if self.player1.skill_instance and isinstance(self.player1.skill_instance, SlowMoSkill) and self.player1.skill_instance.is_active():
              active_slowmo_skill = self.player1.skill_instance
         if self.opponent.skill_instance and isinstance(self.opponent.skill_instance, SlowMoSkill) and self.opponent.skill_instance.is_active():
-            # 如果雙方都開啟 SlowMo，選擇效果更強的 (time_scale 更小)
             if active_slowmo_skill is None or \
                self.opponent.skill_instance.slow_time_scale_value < active_slowmo_skill.slow_time_scale_value:
                  active_slowmo_skill = self.opponent.skill_instance
@@ -249,11 +252,10 @@ class PongDuelEnv:
         return current_time_scale
 
     def _update_player_positions(self, player1_action_input, opponent_action_input, time_scale):
-        """根據輸入和時間尺度更新玩家和對手球拍的位置。"""
         self.player1.prev_x = self.player1.x
         self.opponent.prev_x = self.opponent.x
         
-        player_move_speed = 0.03 # 正規化移動速度
+        player_move_speed = GameSettings.PLAYER_MOVE_SPEED # <--- 從 GameSettings 讀取
         
         if player1_action_input == 0: self.player1.x -= player_move_speed * time_scale
         elif player1_action_input == 2: self.player1.x += player_move_speed * time_scale
@@ -265,23 +267,15 @@ class PongDuelEnv:
         self.opponent.x = np.clip(self.opponent.x, 0.0, 1.0)
 
     def _update_active_skills(self):
-        """更新所有啟用的技能實例。"""
         if self.player1.skill_instance and self.player1.skill_instance.is_active():
             self.player1.skill_instance.update()
         if self.opponent.skill_instance and self.opponent.skill_instance.is_active():
             self.opponent.skill_instance.update()
-        # 如果技能更新導致回合結束 (例如 SoulEaterBugSkill 得分或被擊中)，
-        # self.round_concluded_by_skill 會被技能內部設定為 True。
 
     def _apply_ball_movement_and_physics(self, time_scale):
-        """
-        應用球的移動（基於速度和旋轉）並更新拖尾。
-        不處理碰撞。
-        """
         if self.enable_spin:
-            # 確保 self.ball_vy 不為零，以避免乘以零得到 NaN 或不期望的結果
             spin_force_x = self.magnus_factor * self.spin * self.ball_vy if self.ball_vy != 0 else 0
-            self.ball_vx += spin_force_x * time_scale # ts 改為 time_scale
+            self.ball_vx += spin_force_x * time_scale
         
         self.ball_x += self.ball_vx * time_scale
         self.ball_y += self.ball_vy * time_scale
@@ -291,30 +285,23 @@ class PongDuelEnv:
             self.trail.pop(0)
 
     def _handle_wall_collisions(self):
-        """處理球與左右牆壁的碰撞。"""
         collided_with_wall = False
         if self.ball_x - self.ball_radius_normalized <= 0:
             self.ball_x = self.ball_radius_normalized
             self.ball_vx *= -1
             collided_with_wall = True
-        elif self.ball_x + self.ball_radius_normalized >= 1.0: # 遊戲區域寬度為1.0
+        elif self.ball_x + self.ball_radius_normalized >= 1.0:
             self.ball_x = 1.0 - self.ball_radius_normalized
             self.ball_vx *= -1
             collided_with_wall = True
         
-        if collided_with_wall and hasattr(self.sound_manager, 'play_wall_hit'): # 假設有撞牆音效
-            # self.sound_manager.play_wall_hit() # 實際播放音效
-            pass # 目前沒有 play_wall_hit，所以暫時 pass
+        if collided_with_wall and hasattr(self.sound_manager, 'play_wall_hit'):
+            pass
 
     def _handle_paddle_collisions(self, old_ball_y, time_scale):
-        """
-        處理球與兩個球拍的碰撞。
-        返回 True 如果本幀發生了球拍碰撞，否則返回 False。
-        """
         collided_this_step = False
-        ts = time_scale # 使用當前的時間尺度
+        ts = time_scale
 
-        # 對手球拍 (上方) 碰撞檢測
         opponent_paddle_surface_y = self.paddle_height_normalized 
         opponent_paddle_contact_y = opponent_paddle_surface_y + self.ball_radius_normalized
         opponent_paddle_half_w = self.opponent.paddle_width_normalized / 2
@@ -337,8 +324,7 @@ class PongDuelEnv:
                 self.sound_manager.play_paddle_hit()
                 collided_this_step = True
         
-        # 玩家 (下方) 球拍碰撞檢測
-        if not collided_this_step: # 僅在未與上方球拍碰撞時檢查下方球拍
+        if not collided_this_step:
             player1_paddle_surface_y = 1.0 - self.paddle_height_normalized 
             player1_paddle_contact_y = player1_paddle_surface_y - self.ball_radius_normalized 
             player1_paddle_half_w = self.player1.paddle_width_normalized / 2
@@ -364,23 +350,19 @@ class PongDuelEnv:
         return collided_this_step
 
     def _check_scoring_and_resolve_round(self, collided_with_paddle_this_step):
-        """
-        檢查球是否出界得分，更新生命值，設定凍結計時器。
-        返回一個元組 (round_done, info_dict)。
-        """
         round_done = False
-        info = {'scorer': None} # 初始化 info
+        info = {'scorer': None}
         current_time_ticks = pygame.time.get_ticks()
 
-        if not collided_with_paddle_this_step: # 只有在本幀沒有發生球拍碰撞時才判斷得分
-            if self.ball_y - self.ball_radius_normalized < 0: # 球觸及或越過頂部邊界 (玩家得分)
+        if not collided_with_paddle_this_step:
+            if self.ball_y - self.ball_radius_normalized < 0:
                 if self.opponent.lives > 0: self.opponent.lives -=1 
                 self.player1.last_hit_time = current_time_ticks 
                 self.freeze_timer = current_time_ticks
                 round_done = True
                 info['scorer'] = 'player1'
                 if DEBUG_ENV: print(f"[PongDuelEnv._check_scoring] Player 1 scored! Opponent lives: {self.opponent.lives}")
-            elif self.ball_y + self.ball_radius_normalized > 1.0: # 球觸及或越過底部邊界 (對手得分)
+            elif self.ball_y + self.ball_radius_normalized > 1.0:
                 if self.player1.lives > 0: self.player1.lives -= 1
                 self.opponent.last_hit_time = current_time_ticks 
                 self.freeze_timer = current_time_ticks
@@ -389,10 +371,8 @@ class PongDuelEnv:
                 if DEBUG_ENV: print(f"[PongDuelEnv._check_scoring] Opponent scored! Player 1 lives: {self.player1.lives}")
         
         return round_done, info
+
     def get_render_data(self):
-        """
-        收集並返回所有渲染所需的遊戲狀態數據。
-        """
         player1_skill_visual_params = {}
         if self.player1.skill_instance and hasattr(self.player1.skill_instance, 'get_visual_params'):
             player1_skill_visual_params = self.player1.skill_instance.get_visual_params()
@@ -404,7 +384,7 @@ class PongDuelEnv:
                 "is_active": self.player1.skill_instance.is_active(),
                 "energy_ratio": self.player1.skill_instance.get_energy_ratio(),
                 "cooldown_seconds": self.player1.skill_instance.get_cooldown_seconds(),
-                "visual_params": player1_skill_visual_params # 包含技能的視覺參數
+                "visual_params": player1_skill_visual_params
             }
 
         opponent_skill_visual_params = {}
@@ -418,7 +398,7 @@ class PongDuelEnv:
                 "is_active": self.opponent.skill_instance.is_active(),
                 "energy_ratio": self.opponent.skill_instance.get_energy_ratio(),
                 "cooldown_seconds": self.opponent.skill_instance.get_cooldown_seconds(),
-                "visual_params": opponent_skill_visual_params # 包含技能的視覺參數
+                "visual_params": opponent_skill_visual_params
             }
 
         freeze_active = (self.freeze_timer > 0 and 
@@ -431,7 +411,7 @@ class PongDuelEnv:
                 "y_norm": self.ball_y,
                 "spin": self.spin, 
                 "radius_norm": self.ball_radius_normalized,
-                "image_key": self.ball_visual_key # <-- 新增，例如 "default" 或 "soul_eater_bug"
+                "image_key": self.ball_visual_key
             },
             "player1": {
                 "x_norm": self.player1.x,
@@ -439,7 +419,7 @@ class PongDuelEnv:
                 "paddle_color": self.player1.paddle_color,
                 "lives": self.player1.lives,
                 "max_lives": self.player1.max_lives,
-                "skill_data": player1_skill_data_for_ui, # UI條和技能視覺效果都會用到
+                "skill_data": player1_skill_data_for_ui,
                 "is_ai": self.player1.is_ai, 
                 "identifier": self.player1.identifier, 
             },
@@ -449,33 +429,28 @@ class PongDuelEnv:
                 "paddle_color": self.opponent.paddle_color,
                 "lives": self.opponent.lives,
                 "max_lives": self.opponent.max_lives,
-                "skill_data": opponent_skill_data_for_ui, # UI條和技能視覺效果都會用到
+                "skill_data": opponent_skill_data_for_ui,
                 "is_ai": self.opponent.is_ai,
                 "identifier": self.opponent.identifier,
             },
             "trail": list(self.trail), 
             "paddle_height_norm": self.paddle_height_normalized, 
             "freeze_active": freeze_active,
-            # PongDuelEnv 現在還需要傳遞技能自身的邏輯像素尺寸給 Renderer，以便 Renderer 可以正確縮放
-            # 例如 SlowMoSkill 的 clock_radius_logic_px, paddle_trail 的 paddle_width_logic_px 等
-            # 這些可以包含在 playerX.skill_data.visual_params 中，由技能的 get_visual_params 提供
-            "logical_paddle_height_px": self.paddle_height_px, # Renderer 可能需要這個來畫軌跡
-            # self.logical_ball_radius_px 已經在 Renderer init 時傳遞
+            "logical_paddle_height_px": self.paddle_height_px,
         }
         return render_data
+
     def get_lives(self):
         return self.player1.lives, self.opponent.lives
 
     def _scale_difficulty(self):
-        # 根據 bounces 增加球速
-        # 確保不會在初始幾次碰撞就變得太快
         if self.bounces > 0 and self.speed_scale_every > 0:
+            # speed_increment 應從 self 獲取
             speed_multiplier = 1 + (self.bounces // self.speed_scale_every) * self.speed_increment
             current_speed_magnitude = math.sqrt(self.ball_vx**2 + self.ball_vy**2)
             
-            # 避免除以零，並確保只在速度大於一個非常小的值時才進行縮放
-            if current_speed_magnitude > 1e-6: #一個很小的值，避免浮點數問題
-                # 新的目標速度不應低於初始速度
+            if current_speed_magnitude > 1e-6:
+                # initial_ball_speed 應從 self 獲取
                 target_speed_magnitude = max(self.initial_ball_speed, self.initial_ball_speed * speed_multiplier)
                 
                 scale_factor = target_speed_magnitude / current_speed_magnitude
@@ -483,54 +458,35 @@ class PongDuelEnv:
                 self.ball_vy *= scale_factor
                 if DEBUG_ENV:
                     print(f"[PongDuelEnv._scale_difficulty] Bounces: {self.bounces}, Multiplier: {speed_multiplier:.3f}, New Speed Mag: {target_speed_magnitude:.4f}")
-            # else: # 如果球速幾乎為零，則不進行縮放，等待下一次有效碰撞
-            #    if DEBUG_ENV: print(f"[PongDuelEnv._scale_difficulty] Ball speed too low to scale ({current_speed_magnitude:.4e})")
-
 
     def step(self, player1_action_input, opponent_action_input):
         current_time_ticks = pygame.time.get_ticks()
         
-        # 1. 處理遊戲凍結狀態
         if self.freeze_timer > 0:
             if current_time_ticks - self.freeze_timer < self.freeze_duration:
-                return self._get_obs(), 0, False, False, {'scorer': None} # 回合未結束，遊戲未結束
+                return self._get_obs(), 0, False, False, {'scorer': None}
             else:
-                self.freeze_timer = 0 # 凍結結束
+                self.freeze_timer = 0
 
-        # 2. 確定當前時間尺度 (受 SlowMo 技能影響)
         current_time_scale = self._determine_time_scale()
-        self.time_scale = current_time_scale # 更新環境的 time_scale 供其他地方使用 (如果需要)
+        self.time_scale = current_time_scale
 
-        # 3. 更新玩家和對手球拍位置
         self._update_player_positions(player1_action_input, opponent_action_input, current_time_scale)
 
-        # 4. 記錄球碰撞前的Y座標 (用於精確碰撞檢測)
         old_ball_y_for_collision = self.ball_y 
 
-        # 5. 更新啟用的技能邏輯 (例如 SoulEaterBugSkill 的移動，或 LongPaddle 的持續時間)
-        # SoulEaterBugSkill 的 update 方法可能會直接修改球的位置和速度，並設定 self.round_concluded_by_skill
-        self.round_concluded_by_skill = False # 重置標記
-        self.current_round_info = {} # 重置回合資訊
+        self.round_concluded_by_skill = False
+        self.current_round_info = {}
         self._update_active_skills()
 
-        # 6. 如果技能更新導致回合結束 (例如蟲子得分或被擊中)
         if self.round_concluded_by_skill:
             if DEBUG_ENV: print(f"[SKILL_DEBUG][PongDuelEnv.step] Round concluded by SKILL. Info: {self.current_round_info}")
             game_over_after_skill = self.player1.lives <= 0 or self.opponent.lives <= 0
-            # 確保 info 字典從 self.current_round_info 更新
-            final_info = {'scorer': None} # 預設
+            final_info = {'scorer': None}
             final_info.update(self.current_round_info)
             return self._get_obs(), 0, True, game_over_after_skill, final_info
 
-        # 7. 判斷是否執行常規球物理 (如果沒有技能覆蓋球的物理)
         run_normal_ball_physics = True
-        # SoulEaterBugSkill 等技能會在其 update 中處理球的移動和碰撞，並設定 round_concluded_by_skill
-        # 所以這裡不再需要檢查 skill.overrides_ball_physics，而是依賴 round_concluded_by_skill
-        # 然而，為了確保在技能沒有結束回合但確實覆蓋了物理的情況下，不執行以下常規物理，
-        # 檢測 skill.overrides_ball_physics 仍然是有意義的。
-        # 讓我們假設，如果一個技能 overrides_ball_physics 並且 is_active，它總會在自己的 update 中
-        # 處理球的最終狀態或設定 round_concluded_by_skill。
-        # 為了安全，如果一個技能說它覆蓋物理且當前啟用，我們就不執行常規物理。
         if (self.player1.skill_instance and self.player1.skill_instance.is_active() and 
             getattr(self.player1.skill_instance, 'overrides_ball_physics', False)):
             run_normal_ball_physics = False
@@ -544,34 +500,24 @@ class PongDuelEnv:
         info_from_normal_physics = {'scorer': None}
 
         if run_normal_ball_physics:
-            # 8. 應用球的移動和基礎物理 (不含碰撞)
             self._apply_ball_movement_and_physics(current_time_scale)
-
-            # 9. 處理牆壁碰撞
             self._handle_wall_collisions()
-
-            # 10. 處理球拍碰撞
             collided_with_paddle_this_step = self._handle_paddle_collisions(old_ball_y_for_collision, current_time_scale)
-
-            # 11. 檢查得分情況並結束回合 (如果球出界)
             round_done_by_normal_physics, info_from_normal_physics = self._check_scoring_and_resolve_round(collided_with_paddle_this_step)
             
             if round_done_by_normal_physics and DEBUG_ENV:
                 print(f"[NORMAL_PHYSICS][PongDuelEnv.step] Round ended by NORMAL physics. Scorer: {info_from_normal_physics.get('scorer')}. P1 Lives: {self.player1.lives}, Opponent Lives: {self.opponent.lives}")
         
-        # 12. 判斷遊戲是否結束 (基於生命值)
-        # 只有在回合確實結束時（無論是通過技能還是常規物理），才更新 game_over 狀態
-        if round_done_by_normal_physics or self.round_concluded_by_skill : # 確保回合已結束
+        if round_done_by_normal_physics or self.round_concluded_by_skill :
             game_over_by_normal_physics = self.player1.lives <= 0 or self.opponent.lives <= 0
             if game_over_by_normal_physics and DEBUG_ENV:
                 print(f"[NORMAL_PHYSICS][PongDuelEnv.step] GAME OVER by NORMAL physics detected.")
 
-        # 最終的回合結束狀態和資訊
         final_round_done = round_done_by_normal_physics or self.round_concluded_by_skill
-        final_game_over = game_over_by_normal_physics # game_over_after_skill 已經在前面處理過了
+        final_game_over = game_over_by_normal_physics
         
         final_info_to_return = {'scorer': None}
-        if self.round_concluded_by_skill: # 技能結束回合的資訊優先
+        if self.round_concluded_by_skill:
             final_info_to_return.update(self.current_round_info)
         elif round_done_by_normal_physics:
             final_info_to_return.update(info_from_normal_physics)
@@ -592,17 +538,15 @@ class PongDuelEnv:
                 if DEBUG_ENV_FULLSCREEN: print(f"[DEBUG_ENV_FULLSCREEN][PongDuelEnv.render] No surface provided, Renderer might create its own default window.")
 
             self.renderer = Renderer(
-                # env=self, # Renderer 不再直接持有 env 的引用
-                game_mode=self.game_mode, # Renderer 仍需知道遊戲模式以進行佈局
-                logical_game_area_size=self.render_size, # Renderer 需要知道遊戲區的邏輯大小
-                logical_ball_radius_px=self.ball_radius_px, # Renderer 初始化球圖像時需要
-                logical_paddle_height_px=self.paddle_height_px, # Renderer 繪製球拍時需要
+                game_mode=self.game_mode,
+                logical_game_area_size=self.render_size,
+                logical_ball_radius_px=self.ball_radius_px,
+                logical_paddle_height_px=self.paddle_height_px,
                 actual_screen_surface=self.provided_main_screen_surface,
                 actual_screen_width=actual_width,
                 actual_screen_height=actual_height
             )
 
-        # 收集渲染數據並傳遞給 Renderer
         render_data_packet = self.get_render_data()
         self.renderer.render(render_data_packet)
 
@@ -611,6 +555,5 @@ class PongDuelEnv:
         if self.renderer:
             self.renderer.close()
             self.renderer = None
-        # 可以加入 pygame.mixer.music.stop() 等清理
         if self.sound_manager:
-            self.sound_manager.stop_bg_music() # 確保背景音樂停止
+            self.sound_manager.stop_bg_music()

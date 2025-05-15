@@ -1,6 +1,6 @@
 initial_direction: "up"
 initial_angle_deg_range: [-60, 60]
-initial_speed: 0.04
+initial_speed: 0.02
 enable_spin: true
 magnus_factor: 0.04
 speed_increment: 0.003
