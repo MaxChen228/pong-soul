@@ -13,7 +13,6 @@ from utils import resource_path
 
 # 引入狀態
 from game.states.base_state import BaseState
-from game.states.menu_states import SelectGameModeState # ⭐️ 引入真正的狀態類
 
 DEBUG_GAME_APP = True
 
@@ -86,17 +85,19 @@ class GameApp:
         self._register_states()
         self.change_state(GameFlowStateName.SELECT_GAME_MODE)
 
-# main.py (GameApp._register_states() 方法)
-
     def _register_states(self):
-        from game.states.menu_states import SelectGameModeState, SelectInputPvaState, SelectSkillPvaState, RunPvpSkillSelectionState
-        from game.states.gameplay_state import GameplayState # ⭐️ 引入 GameplayState
+        # 從新的獨立檔案導入選單狀態
+        from game.states.select_game_mode_state import SelectGameModeState
+        from game.states.select_input_pva_state import SelectInputPvaState
+        from game.states.select_skill_pva_state import SelectSkillPvaState
+        from game.states.run_pvp_skill_selection_state import RunPvpSkillSelectionState
+        
+        from game.states.gameplay_state import GameplayState
         
         self.states[GameFlowStateName.SELECT_GAME_MODE] = SelectGameModeState(self)
         self.states[GameFlowStateName.SELECT_INPUT_PVA] = SelectInputPvaState(self)
         self.states[GameFlowStateName.SELECT_SKILL_PVA] = SelectSkillPvaState(self)
         self.states[GameFlowStateName.RUN_PVP_SKILL_SELECTION] = RunPvpSkillSelectionState(self)
-        # ⭐️ 使用真正的 GameplayState 替換 PlaceholderState
         self.states[GameFlowStateName.GAMEPLAY] = GameplayState(self)
 
     def _calculate_and_set_render_context(self, state_object, state_name_enum):
