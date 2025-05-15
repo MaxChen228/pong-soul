@@ -501,14 +501,14 @@ def main_loop():
     
     LOGICAL_MENU_WIDTH = 800
     LOGICAL_MENU_HEIGHT = 600
-    LOGICAL_PVP_SKILL_MENU_WIDTH = 1000 # PvP技能選擇界面的邏輯寬度
-    LOGICAL_PVP_SKILL_MENU_HEIGHT = 600 # PvP技能選擇界面的邏輯高度
+    LOGICAL_PVP_SKILL_MENU_WIDTH = 1000 
+    LOGICAL_PVP_SKILL_MENU_HEIGHT = 600
 
     if DEBUG_MAIN_FULLSCREEN:
         print(f"[DEBUG_MAIN_FULLSCREEN][main_loop] Logical Menu Design: {LOGICAL_MENU_WIDTH}x{LOGICAL_MENU_HEIGHT}")
         print(f"[DEBUG_MAIN_FULLSCREEN][main_loop] Logical PvP Skill Menu Design: {LOGICAL_PVP_SKILL_MENU_WIDTH}x{LOGICAL_PVP_SKILL_MENU_HEIGHT}")
         
-    current_input_mode = "keyboard"
+    current_input_mode = "keyboard" # 預設鍵盤
     p1_selected_skill_code, p2_selected_skill_code = None, None
     current_game_mode = None
     sound_manager = SoundManager()
@@ -521,19 +521,24 @@ def main_loop():
         current_content_logical_width = 0
         current_content_logical_height = 0
         
-        if next_game_flow_step in ["select_game_mode", "select_input", "select_skill_pva"]:
+        # 根據流程步驟設定當前內容的邏輯尺寸
+        if next_game_flow_step == "select_game_mode":
             current_content_logical_width = LOGICAL_MENU_WIDTH
             current_content_logical_height = LOGICAL_MENU_HEIGHT
-        elif next_game_flow_step == "run_pvp_skill_selection": # 假設我們用這個狀態名
+        elif next_game_flow_step == "select_input": # 只有 PvA 模式會進入此步驟
+            current_content_logical_width = LOGICAL_MENU_WIDTH
+            current_content_logical_height = LOGICAL_MENU_HEIGHT
+        elif next_game_flow_step == "select_skill_pva":
+             current_content_logical_width = LOGICAL_MENU_WIDTH
+             current_content_logical_height = LOGICAL_MENU_HEIGHT
+        elif next_game_flow_step == "run_pvp_skill_selection":
             current_content_logical_width = LOGICAL_PVP_SKILL_MENU_WIDTH
             current_content_logical_height = LOGICAL_PVP_SKILL_MENU_HEIGHT
-        # 注意：game_session 的邏輯尺寸由其內部的 env.render_size (例如400) 決定，
-        # Renderer 會處理遊戲內容的縮放。main_loop 不需要為 game_session 計算縮放。
-
+        
         scale_factor = 1.0
         render_area_on_screen = pygame.Rect(0, 0, ACTUAL_SCREEN_WIDTH, ACTUAL_SCREEN_HEIGHT)
 
-        if current_content_logical_width > 0 and current_content_logical_height > 0:
+        if current_content_logical_width > 0 and current_content_logical_height > 0: # 計算選單的縮放和定位
             scale_x = ACTUAL_SCREEN_WIDTH / current_content_logical_width
             scale_y = ACTUAL_SCREEN_HEIGHT / current_content_logical_height
             scale_factor = min(scale_x, scale_y)
@@ -543,54 +548,73 @@ def main_loop():
             offset_y = (ACTUAL_SCREEN_HEIGHT - scaled_content_height) // 2
             render_area_on_screen = pygame.Rect(offset_x, offset_y, scaled_content_width, scaled_content_height)
             
-            if DEBUG_MAIN_FULLSCREEN and next_game_flow_step not in ["game_session_active_state"]: # 避免遊戲時重複打印
+            if DEBUG_MAIN_FULLSCREEN and next_game_flow_step not in ["game_session_active_state"]:
                 print(f"[DEBUG_MAIN_FULLSCREEN][main_loop] Content Scaling for '{next_game_flow_step}':")
                 print(f"    Logical: {current_content_logical_width}x{current_content_logical_height}, Scale: {scale_factor:.2f}")
                 print(f"    Render Area on Screen: {render_area_on_screen}")
         
-        # 選單函數調用前先填充整個螢幕背景
-        if next_game_flow_step not in ["game_session_active_state"]: # 假設遊戲會話自己處理背景
+        if next_game_flow_step not in ["game_session_active_state"]:
              main_screen.fill(Style.BACKGROUND_COLOR)
 
         if next_game_flow_step == "select_game_mode":
             current_game_mode = select_game_mode(main_screen, sound_manager, scale_factor, render_area_on_screen)
-            if current_game_mode is None:
-                next_game_flow_step = "quit"; # pygame.display.flip() in main loop end
-                continue
-            p1_selected_skill_code, p2_selected_skill_code = None, None
-            next_game_flow_step = "select_input"
+            if current_game_mode is None: # 通常意味著選擇了 "Quit Game" 或關閉
+                next_game_flow_step = "quit"
+                continue # flip 會在迴圈末尾處理
+            
+            p1_selected_skill_code, p2_selected_skill_code = None, None # 重置技能選擇
 
-        elif next_game_flow_step == "select_input":
+            # ⭐️ 根據遊戲模式決定下一步流程
+            if current_game_mode == GameSettings.GameMode.PLAYER_VS_AI:
+                next_game_flow_step = "select_input" # PvA 模式，進入輸入選擇
+            elif current_game_mode == GameSettings.GameMode.PLAYER_VS_PLAYER:
+                current_input_mode = "keyboard" # PvP 模式強制鍵盤
+                if DEBUG_MAIN: print(f"[main_loop] PvP mode selected. Input mode forced to 'keyboard'.")
+                next_game_flow_step = "run_pvp_skill_selection" # PvP 模式，直接進入技能選擇
+            else:
+                if DEBUG_MAIN: print(f"[main_loop] Unknown game mode from select_game_mode: {current_game_mode}. Defaulting to quit.")
+                next_game_flow_step = "quit" # 未知模式，退出
+
+        elif next_game_flow_step == "select_input": # 只有 PvA 模式會到這裡
+            if current_game_mode != GameSettings.GameMode.PLAYER_VS_AI:
+                if DEBUG_MAIN: print(f"[main_loop] Error: select_input step reached for non-PvA mode ({current_game_mode}). Returning to mode select.")
+                next_game_flow_step = "select_game_mode"
+                continue
+
             selection_result = select_input_method(main_screen, sound_manager, scale_factor, render_area_on_screen)
             if selection_result == "back_to_game_mode_select":
-                next_game_flow_step = "select_game_mode"; # pygame.display.flip()
+                next_game_flow_step = "select_game_mode"
                 continue
-            elif selection_result is None:
-                next_game_flow_step = "select_game_mode"; # pygame.display.flip()
+            elif selection_result is None: # 如果 select_input_method 內部按了 ESC 或關閉
+                next_game_flow_step = "select_game_mode" # 返回到模式選擇
                 continue
-            current_input_mode = selection_result
-            
-            if current_game_mode == GameSettings.GameMode.PLAYER_VS_AI:
-                next_game_flow_step = "select_skill_pva"
-            elif current_game_mode == GameSettings.GameMode.PLAYER_VS_PLAYER:
-                # 更新狀態以觸發 PvP 技能選擇的特定縮放計算
-                next_game_flow_step = "run_pvp_skill_selection" 
-                # pygame.display.flip() # flip 會在迴圈末尾
-                continue # 重新進入迴圈以計算 PvP 技能選擇的縮放
+            current_input_mode = selection_result # "keyboard" or "mouse"
+            next_game_flow_step = "select_skill_pva"
 
-        elif next_game_flow_step == "run_pvp_skill_selection": # 新增的狀態
-            # 此時 current_content_logical_width/height 應為 PvP 技能選單的尺寸
-            # scale_factor 和 render_area_on_screen 也是為其計算的
+
+        elif next_game_flow_step == "run_pvp_skill_selection": # 只有 PvP 模式到這裡
+            if current_game_mode != GameSettings.GameMode.PLAYER_VS_PLAYER:
+                if DEBUG_MAIN: print(f"[main_loop] Error: run_pvp_skill_selection step reached for non-PvP mode ({current_game_mode}). Returning to mode select.")
+                next_game_flow_step = "select_game_mode"
+                continue
+            # 此時的 scale_factor 和 render_area_on_screen 是為 PvP 技能選單計算的
             p1_selected_skill_code, p2_selected_skill_code = run_pvp_selection_phase(
                 main_screen, sound_manager, scale_factor, render_area_on_screen
             )
-            if p1_selected_skill_code is None or p2_selected_skill_code is None:
-                next_game_flow_step = "select_input"; # pygame.display.flip()
+            if p1_selected_skill_code is None or p2_selected_skill_code is None: # 有人取消
+                next_game_flow_step = "select_game_mode" # 如果PvP技能選擇取消，返回遊戲模式選擇
                 continue
+            # PvP 技能選擇完成，進入遊戲會話
+            current_input_mode = "keyboard" # 再次確認 PvP 是鍵盤
             next_game_flow_step = game_session(main_screen, current_input_mode, p1_selected_skill_code, p2_selected_skill_code, current_game_mode)
 
 
-        elif next_game_flow_step == "select_skill_pva":
+        elif next_game_flow_step == "select_skill_pva": # 只有 PvA 模式到這裡
+            if current_game_mode != GameSettings.GameMode.PLAYER_VS_AI:
+                if DEBUG_MAIN: print(f"[main_loop] Error: select_skill_pva step reached for non-PvA mode ({current_game_mode}). Returning to mode select.")
+                next_game_flow_step = "select_game_mode"
+                continue
+            # 此時的 scale_factor 和 render_area_on_screen 是為標準選單計算的
             p1_selected_skill_code = select_skill(
                 main_screen_surface=main_screen,
                 render_area=render_area_on_screen,
@@ -599,22 +623,22 @@ def main_loop():
                 player_identifier="Player",
                 scale_factor=scale_factor
             )
-            if p1_selected_skill_code is None:
-                next_game_flow_step = "select_input"; # pygame.display.flip()
+            if p1_selected_skill_code is None: # 玩家取消選擇
+                next_game_flow_step = "select_input" # 返回輸入選擇
                 continue
+            # PvA 技能選擇完成，進入遊戲會話
             next_game_flow_step = game_session(main_screen, current_input_mode, p1_selected_skill_code, None, current_game_mode)
         
         elif next_game_flow_step == "quit":
             running = False
         
         else: # 通常是從 game_session 返回
-            # 如果 next_game_flow_step 不是已知的流程控制狀態，則重置為選擇遊戲模式
+            # next_game_flow_step 可能是 "select_game_mode" 或 "quit"
             if next_game_flow_step not in ["select_game_mode", "select_input", "select_skill_pva", "quit", "run_pvp_skill_selection"]:
                 if DEBUG_MAIN: print(f"[main_loop] Unknown next_game_flow_step: '{next_game_flow_step}'. Defaulting to 'select_game_mode'.")
                 next_game_flow_step = "select_game_mode"
 
-        # 主迴圈的統一 flip
-        if running: # 只有在遊戲仍在運行時才 flip
+        if running:
              pygame.display.flip()
 
     if DEBUG_MAIN_FULLSCREEN: print("[DEBUG_MAIN_FULLSCREEN][main_loop] Exiting application.")
