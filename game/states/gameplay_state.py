@@ -3,6 +3,7 @@ import pygame
 import random # 需要隨機發球等
 import os     # 需要 os.path.exists
 import time   # 需要 time.sleep (雖然Renderer有clock.tick)
+import numpy as np
 
 from game.states.base_state import BaseState
 from game.theme import Style
@@ -317,45 +318,85 @@ class GameplayState(BaseState):
                 return # 仍在回合結束停頓中，不執行遊戲邏輯
 
 
-        # --- 複製自舊 game_session 的遊戲主迴圈核心邏輯 ---
+# game/states/gameplay_state.py (修改後的 update 方法相關部分)
+
+        # ... (方法開頭的 freeze_timer 檢查等保持不變) ...
+
         keys = pygame.key.get_pressed()
-        p1_ingame_action = 1
+        
+        # --- P1 目標X座標計算 ---
+        player1_target_x_norm = 0.5 # 預設目標 (例如，如果 env 未初始化)
+        if self.env and hasattr(self.env, 'player1'): # 確保 env 和 player1 已存在
+            player1_target_x_norm = self.env.player1.x # 預設目標為當前位置 (嘗試保持不動)
 
-        if self.current_input_mode == "keyboard":
-            if keys[P1_GAME_CONTROLS['LEFT_KB']]: p1_ingame_action = 0
-            elif keys[P1_GAME_CONTROLS['RIGHT_KB']]: p1_ingame_action = 2
-        elif self.current_input_mode == "mouse" and self.current_game_mode == GameSettings.GameMode.PLAYER_VS_AI:
-            mouse_x_abs, mouse_y_abs = pygame.mouse.get_pos()
-            logical_mouse_x = -1
-            if hasattr(self.env.renderer, 'game_area_rect_on_screen') and \
-               hasattr(self.env.renderer, 'game_content_scale_factor'):
-                game_rect = self.env.renderer.game_area_rect_on_screen
-                scale = self.env.renderer.game_content_scale_factor
-                if game_rect.collidepoint(mouse_x_abs, mouse_y_abs) and scale > 0:
-                    mouse_x_in_scaled_area = mouse_x_abs - game_rect.left
-                    mouse_x_logical_pixels = mouse_x_in_scaled_area / scale
-                    if self.env.render_size > 0:
-                        logical_mouse_x = mouse_x_logical_pixels / self.env.render_size
-                        logical_mouse_x = max(0.0, min(1.0, logical_mouse_x))
+            if self.current_input_mode == "keyboard":
+                if keys[P1_GAME_CONTROLS['LEFT_KB']] and not keys[P1_GAME_CONTROLS['RIGHT_KB']]:
+                    player1_target_x_norm = 0.0 # 目標設為最左邊
+                elif keys[P1_GAME_CONTROLS['RIGHT_KB']] and not keys[P1_GAME_CONTROLS['LEFT_KB']]:
+                    player1_target_x_norm = 1.0 # 目標設為最右邊
+                # 如果同時按或都不按，則 player1_target_x_norm 保持為 self.env.player1.x (嘗試不動)
             
-            if logical_mouse_x != -1:
-                threshold = 0.02
-                if logical_mouse_x < self.env.player1.x - threshold: p1_ingame_action = 0
-                elif logical_mouse_x > self.env.player1.x + threshold: p1_ingame_action = 2
+            elif self.current_input_mode == "mouse" and self.current_game_mode == GameSettings.GameMode.PLAYER_VS_AI:
+                mouse_x_abs, _ = pygame.mouse.get_pos()
+                logical_mouse_x = -1
+                # 確保 env.renderer 和相關屬性已初始化
+                if hasattr(self.env, 'renderer') and self.env.renderer and \
+                   hasattr(self.env.renderer, 'game_area_rect_on_screen') and \
+                   hasattr(self.env.renderer, 'game_content_scale_factor'):
+                    
+                    game_rect = self.env.renderer.game_area_rect_on_screen # PvA模式下的主遊戲區域
+                    scale = self.env.renderer.game_content_scale_factor
+                    
+                    if game_rect.collidepoint(mouse_x_abs, _): # 滑鼠在有效遊戲區域內
+                        # 將螢幕滑鼠X座標轉換為相對於 game_rect 左邊緣的偏移量
+                        mouse_x_in_scaled_area = mouse_x_abs - game_rect.left
+                        # 反推回邏輯像素座標 (相對於 render_size)
+                        mouse_x_logical_pixels = mouse_x_in_scaled_area / scale
+                        if self.env.render_size > 0:
+                            logical_mouse_x = mouse_x_logical_pixels / self.env.render_size
+                            logical_mouse_x = np.clip(logical_mouse_x, 0.0, 1.0) # 確保在 [0,1] 內
+                    
+                if logical_mouse_x != -1:
+                    player1_target_x_norm = logical_mouse_x
+                # else: 如果滑鼠在區域外，player1_target_x_norm 保持為 P1 當前位置 (嘗試不動)
         
+        # P1 技能啟動 (保持不變)
         if keys[P1_GAME_CONTROLS['SKILL_KB']]:
-            self.env.activate_skill(self.env.player1)
+            if self.env: self.env.activate_skill(self.env.player1)
 
-        opponent_ingame_action = 1
-        if self.current_game_mode == GameSettings.GameMode.PLAYER_VS_AI:
-            if self.ai_agent: opponent_ingame_action = self.ai_agent.select_action(self.obs.copy())
-        else: # PvP
-            if keys[P2_GAME_CONTROLS['LEFT']]: opponent_ingame_action = 0
-            elif keys[P2_GAME_CONTROLS['RIGHT']]: opponent_ingame_action = 2
-            if keys[P2_GAME_CONTROLS['SKILL']]:
-                self.env.activate_skill(self.env.opponent)
+        # --- Opponent (AI 或 P2) 目標X座標計算 ---
+        opponent_target_x_norm = 0.5 # 預設目標
+        if self.env and hasattr(self.env, 'opponent'): # 確保 env 和 opponent 已存在
+            opponent_target_x_norm = self.env.opponent.x # 預設目標為當前位置
+
+            if self.current_game_mode == GameSettings.GameMode.PLAYER_VS_AI:
+                if self.ai_agent:
+                    opponent_target_x_norm = self.ai_agent.select_action(self.obs.copy())
+                else:
+                    opponent_target_x_norm = 0.5 # 若無AI代理，目標設為中間
+            
+            else: # PvP 模式 - P2 的鍵盤控制轉換為目標X
+                if keys[P2_GAME_CONTROLS['LEFT']] and not keys[P2_GAME_CONTROLS['RIGHT']]:
+                    opponent_target_x_norm = 0.0 # 目標設為最左邊
+                elif keys[P2_GAME_CONTROLS['RIGHT']] and not keys[P2_GAME_CONTROLS['LEFT']]:
+                    opponent_target_x_norm = 1.0 # 目標設為最右邊
+                # 如果同時按或都不按，則 opponent_target_x_norm 保持為 self.env.opponent.x (嘗試不動)
+
+                # P2 技能啟動 (保持不變)
+                if keys[P2_GAME_CONTROLS['SKILL']]:
+                    if self.env: self.env.activate_skill(self.env.opponent)
         
-        self.obs, reward, round_done, game_over, info = self.env.step(p1_ingame_action, opponent_ingame_action)
+        # --- 調用 env.step ---
+        if self.env: # 確保 env 已初始化
+            self.obs, reward, round_done, game_over, info = self.env.step(
+                player1_target_x_norm, 
+                opponent_target_x_norm
+            )
+        else: # Fallback if env is not ready (should not happen in normal flow)
+            round_done, game_over, info = False, False, {'scorer': None}
+            # self.obs would not be updated here, consider safety
+
+        # ... (後續的回合結束、遊戲結束處理邏輯保持不變) ...
 
         if round_done:
             if DEBUG_GAMEPLAY_STATE: print(f"[State:Gameplay] Round Done. Info: {info}. P1_Lives: {self.env.player1.lives}, Opp_Lives: {self.env.opponent.lives}")

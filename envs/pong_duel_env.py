@@ -228,14 +228,54 @@ class PongDuelEnv:
 
         self.time_scale = 1.0
         return self._get_obs(), {}
-
+    
     def _get_obs(self):
-        obs_array = [
-            self.ball_x, self.ball_y,
-            self.ball_vx, self.ball_vy,
-            self.player1.x, self.opponent.x,
-        ]
-        return np.array(obs_array, dtype=np.float32)
+        """
+        收集並回傳擴展後的遊戲狀態作為 AI 的觀察值。
+        此版本專注於核心策略元素，暫不包含技能相關資訊。
+        目標維度: 15
+        """
+        
+        obs_list = []
+
+        # 1. AI 球拍狀態 (self.opponent) - 3 維
+        obs_list.append(self.opponent.x)  # AI paddle X position
+        obs_list.append(self.opponent.x - self.opponent.prev_x)  # AI paddle X velocity proxy
+        obs_list.append(self.opponent.paddle_width_normalized) # AI paddle width
+
+        # 2. 人類玩家球拍狀態 (self.player1) - 3 維
+        obs_list.append(self.player1.x)  # Human paddle X position
+        obs_list.append(self.player1.x - self.player1.prev_x)  # Human paddle X velocity proxy
+        obs_list.append(self.player1.paddle_width_normalized) # Human paddle width
+
+        # 3. 球的狀態 - 5 維
+        obs_list.append(self.ball_x)  # Ball X position
+        obs_list.append(self.ball_y)  # Ball Y position (0=AI side, 1=Human side from AI's perspective)
+        obs_list.append(self.ball_vx) # Ball X velocity
+        obs_list.append(self.ball_vy) # Ball Y velocity (positive towards Human)
+        obs_list.append(self.spin)    # Ball spin
+
+        # 4. 球與 AI 球拍的相對狀態 - 2 維
+        obs_list.append(self.ball_x - self.opponent.x) # Relative X: Ball to AI paddle center
+        obs_list.append(self.ball_y - self.paddle_height_normalized) # Relative Y: Ball to AI paddle surface
+
+        # 5. 球與人類球拍的相對狀態 - 2 維
+        obs_list.append(self.ball_x - self.player1.x) # Relative X: Ball to Human paddle center
+        obs_list.append(self.ball_y - (1.0 - self.paddle_height_normalized)) # Relative Y: Ball to Human paddle surface
+        
+        # DEBUGGING: Print the length and content of obs_list right before returning
+        # 確保 DEBUG_ENV 標誌在 PongDuelEnv 類別的頂部被定義 (例如 DEBUG_ENV = False)
+        # 或者直接取消下面兩行的註解進行強制打印
+        # print(f"DEBUG [_get_obs]: len(obs_list) = {len(obs_list)}")
+        # print(f"DEBUG [_get_obs]: obs_list content = {obs_list}")
+
+        if hasattr(self, 'DEBUG_ENV') and self.DEBUG_ENV: # 使用 self.DEBUG_ENV 如果它是類別或實例屬性
+            current_obs_dim = len(obs_list)
+            if not hasattr(self, '_last_logged_obs_dim') or self._last_logged_obs_dim != current_obs_dim:
+                print(f"[DEBUG_ENV][_get_obs] Observation space dimension: {current_obs_dim}")
+                self._last_logged_obs_dim = current_obs_dim
+        
+        return np.array(obs_list, dtype=np.float32)
     
     def _determine_time_scale(self):
         current_time_scale = 1.0
@@ -251,18 +291,39 @@ class PongDuelEnv:
             current_time_scale = active_slowmo_skill.slow_time_scale_value
         return current_time_scale
 
-    def _update_player_positions(self, player1_action_input, opponent_action_input, time_scale):
+    def _update_player_positions(self, p1_target_x_norm, opp_target_x_norm, time_scale):
+        """
+        根據提供的目標X正規化座標，更新玩家和對手的球拍位置。
+        球拍會朝著目標位置移動，但不會超過其最大移動速度。
+        """
         self.player1.prev_x = self.player1.x
         self.opponent.prev_x = self.opponent.x
         
-        player_move_speed = GameSettings.PLAYER_MOVE_SPEED # <--- 從 GameSettings 讀取
-        
-        if player1_action_input == 0: self.player1.x -= player_move_speed * time_scale
-        elif player1_action_input == 2: self.player1.x += player_move_speed * time_scale
-        
-        if opponent_action_input == 0: self.opponent.x -= player_move_speed * time_scale
-        elif opponent_action_input == 2: self.opponent.x += player_move_speed * time_scale
+        # 可以為 P1 和 Opponent 設定不同的最大移動速度，或使用同一個
+        # 為了簡化，我們暫時都使用 GameSettings.PLAYER_MOVE_SPEED
+        # 如果未來需要，可以在 PlayerState 中加入 max_speed 屬性
+        paddle_max_speed = GameSettings.PLAYER_MOVE_SPEED 
+        #DEBUG_ENV 此處可以印出 p1_target_x_norm, opp_target_x_norm
 
+        # --- 更新 Player 1 的位置 ---
+        current_p1_x = self.player1.x
+        diff_p1_x = p1_target_x_norm - current_p1_x
+        if abs(diff_p1_x) > 1e-4: # 有足夠差異才移動
+            move_direction_p1 = np.sign(diff_p1_x)
+            max_move_this_step_p1 = paddle_max_speed * time_scale
+            actual_move_p1 = min(abs(diff_p1_x), max_move_this_step_p1) * move_direction_p1
+            self.player1.x += actual_move_p1
+        
+        # --- 更新 Opponent (AI 或 Player 2) 的位置 ---
+        current_opp_x = self.opponent.x
+        diff_opp_x = opp_target_x_norm - current_opp_x
+        if abs(diff_opp_x) > 1e-4: # 有足夠差異才移動
+            move_direction_opp = np.sign(diff_opp_x)
+            max_move_this_step_opp = paddle_max_speed * time_scale # 對手也用相同的最大速度
+            actual_move_opp = min(abs(diff_opp_x), max_move_this_step_opp) * move_direction_opp
+            self.opponent.x += actual_move_opp
+
+        # 限制球拍在 [0, 1] 範圍內
         self.player1.x = np.clip(self.player1.x, 0.0, 1.0)
         self.opponent.x = np.clip(self.opponent.x, 0.0, 1.0)
 
@@ -459,7 +520,12 @@ class PongDuelEnv:
                 if DEBUG_ENV:
                     print(f"[PongDuelEnv._scale_difficulty] Bounces: {self.bounces}, Multiplier: {speed_multiplier:.3f}, New Speed Mag: {target_speed_magnitude:.4f}")
 
-    def step(self, player1_action_input, opponent_action_input):
+    def step(self, player1_target_x_norm_input, opponent_target_x_norm_input):
+        """
+        執行一個環境步驟。
+        player1_target_x_norm_input: 玩家1的目標X正規化座標 (0.0 到 1.0)。
+        opponent_target_x_norm_input: 對手(AI或P2)的目標X正規化座標 (0.0 到 1.0)。
+        """
         current_time_ticks = pygame.time.get_ticks()
         
         if self.freeze_timer > 0:
@@ -471,7 +537,8 @@ class PongDuelEnv:
         current_time_scale = self._determine_time_scale()
         self.time_scale = current_time_scale
 
-        self._update_player_positions(player1_action_input, opponent_action_input, current_time_scale)
+        # 傳遞連續的目標位置給 _update_player_positions
+        self._update_player_positions(player1_target_x_norm_input, opponent_target_x_norm_input, current_time_scale)
 
         old_ball_y_for_collision = self.ball_y 
 
@@ -494,7 +561,7 @@ class PongDuelEnv:
               getattr(self.opponent.skill_instance, 'overrides_ball_physics', False)):
             run_normal_ball_physics = False
 
-        reward = 0
+        reward = 0 # 獎勵的計算通常在訓練腳本中根據環境回傳的 info 和 done 狀態來決定
         round_done_by_normal_physics = False
         game_over_by_normal_physics = False
         info_from_normal_physics = {'scorer': None}
