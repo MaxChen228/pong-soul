@@ -4,7 +4,7 @@ from game.states.base_state import BaseState
 from game.theme import Style
 from game.constants import DEFAULT_MENU_CONTROLS
 
-DEBUG_MENU_STATE = True
+DEBUG_MENU_STATE = False
 
 class SelectSkillPvaState(BaseState):
     def __init__(self, game_app):

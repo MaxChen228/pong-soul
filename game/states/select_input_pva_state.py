@@ -3,7 +3,7 @@ import pygame
 from game.states.base_state import BaseState
 from game.theme import Style
 
-DEBUG_MENU_STATE = True
+DEBUG_MENU_STATE = False
 
 class SelectInputPvaState(BaseState):
     def __init__(self, game_app):

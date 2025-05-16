@@ -4,7 +4,7 @@ from game.states.base_state import BaseState
 from game.theme import Style
 from game.constants import P1_MENU_CONTROLS, DEFAULT_MENU_CONTROLS
 
-DEBUG_MENU_STATE = True
+DEBUG_MENU_STATE = False
 
 class RunPvpSkillSelectionState(BaseState):
     def __init__(self, game_app):

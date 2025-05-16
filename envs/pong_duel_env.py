@@ -15,8 +15,8 @@ from game.skills.long_paddle_skill import LongPaddleSkill
 from game.skills.slowmo_skill import SlowMoSkill
 from game.skills.soul_eater_bug_skill import SoulEaterBugSkill
 
-DEBUG_ENV = True
-DEBUG_ENV_FULLSCREEN = True
+DEBUG_ENV = False
+DEBUG_ENV_FULLSCREEN = False
 
 class PongDuelEnv:
     def __init__(self,

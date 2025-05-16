@@ -14,7 +14,7 @@ from utils import resource_path           # 資源路徑輔助函數
 from game.constants import P1_GAME_CONTROLS, P2_GAME_CONTROLS
 
 
-DEBUG_GAMEPLAY_STATE = True
+DEBUG_GAMEPLAY_STATE = False
 
 class GameplayState(BaseState):
     def __init__(self, game_app):

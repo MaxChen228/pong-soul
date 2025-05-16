@@ -6,7 +6,7 @@ from game.skills.base_skill import Skill
 from game.skills.skill_config import SKILL_CONFIGS
 from game.theme import Style # 為了 Style.PLAYER_COLOR 等
 
-DEBUG_SKILL_SLOWMO = True
+DEBUG_SKILL_SLOWMO = False
 
 class SlowMoSkill(Skill):
     def __init__(self, env, owner_player_state):

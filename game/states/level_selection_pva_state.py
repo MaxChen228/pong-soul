@@ -6,7 +6,7 @@ from game.theme import Style
 from game.level import LevelManager # 需要 LevelManager
 from utils import resource_path     # 需要 resource_path
 
-DEBUG_LEVEL_SELECT_STATE = True
+DEBUG_LEVEL_SELECT_STATE = False
 
 class LevelSelectionPvaState(BaseState):
     def __init__(self, game_app):

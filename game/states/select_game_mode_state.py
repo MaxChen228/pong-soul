@@ -4,7 +4,7 @@ from game.states.base_state import BaseState
 from game.theme import Style # Style 包含 SETTINGS_ICON_FONT_SIZE, SETTINGS_ICON_POS_LOGICAL
 from game.settings import GameSettings
 
-DEBUG_MENU_STATE = True
+DEBUG_MENU_STATE = False
 
 class SelectGameModeState(BaseState):
     def __init__(self, game_app):

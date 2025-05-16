@@ -8,7 +8,7 @@ from game.skills.skill_config import SKILL_CONFIGS
 from utils import resource_path
 
 FPS = 60 # 假設遊戲幀率為60FPS
-DEBUG_BUG_SKILL = True # 啟用此文件內的詳細日誌
+DEBUG_BUG_SKILL = False
 
 class SoulEaterBugSkill(Skill):
     def __init__(self, env, owner_player_state): # ⭐️ 修改參數

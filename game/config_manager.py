@@ -3,7 +3,7 @@ import yaml
 import os
 from utils import resource_path # 從您專案的 utils 導入
 
-DEBUG_CONFIG_MANAGER = True
+DEBUG_CONFIG_MANAGER = False
 
 class ConfigManager:
     def __init__(self):

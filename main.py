@@ -15,7 +15,7 @@ from game.config_manager import ConfigManager # <--- 新增這一行
 # 引入狀態
 from game.states.base_state import BaseState
 
-DEBUG_GAME_APP = True
+DEBUG_GAME_APP = False
 
 class GameFlowStateName(Enum):
     QUIT = 0
