@@ -27,11 +27,11 @@ gameplay:
 
 # === 物理特性預設 ===
 physics:
-  magnus_factor: 0.01 # 馬格努斯力係數
+  magnus_factor: 0.025 # 馬格努斯力係數
 
 # === 球的初始行為預設 ===
 ball_behavior:
-  initial_speed: 0.01           # 球的初始速度 (正規化)
+  initial_speed: 0.018           # 球的初始速度 (正規化)
   initial_angle_deg_range: [-60, 60] # 球的初始角度範圍 (度)
   initial_direction_serves_down: true # 預設發球方向是否向下 (P1 在下，AI/P2 在上)
 
