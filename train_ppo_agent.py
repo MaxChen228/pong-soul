@@ -228,7 +228,7 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 OBS_DIM = 15  # 根據我們最新的 _get_obs()
 ACTION_DIM = 1 # 連續目標X座標
 MAX_EPISODES = 10000
-MAX_TIMESTEPS_PER_EPISODE = 1000 # 每回合最大步數
+MAX_TIMESTEPS_PER_EPISODE = 5000 # 每回合最大步數
 UPDATE_TIMESTEPS = 4096  # 每收集這麼多步數後更新一次網路
 SAVE_MODEL_FREQ = 500000 # 每多少步儲存一次模型 (或者按 episode)
 MODEL_DIR = "ppo_models" # 模型儲存目錄
@@ -245,41 +245,99 @@ GAE_LAMBDA = 0.95      # GAE lambda 參數
 ACTION_STD_INIT = 0.5  # 初始動作標準差 (如果 log_std 不是網路輸出)
 HIDDEN_DIM_NETS = 256  # 網路隱藏層大小
 
-# --- 獎勵函數設計 ---
-def calculate_reward(env_info, done, prev_ball_y, current_ball_y, player1_lives, opponent_lives, prev_player1_lives, prev_opponent_lives):
+
+
+# --- 獎勵函數設計 (專注於積極擊球) ---
+def calculate_reward(current_state, env_info, done, prev_ball_y, current_ball_y, player1_lives, opponent_lives, prev_player1_lives, prev_opponent_lives):
     reward = 0.0
+    # DEBUG_REWARD: 您可以在需要時取消以下行的註解來打印資訊以進行偵錯
+    # print(f"[DEBUG_REWARD_V2] State[0,6,7]: {current_state[0]:.2f}, {current_state[6]:.2f}, {current_state[7]:.2f} | Info: {env_info}, Done: {done}")
 
-    # 1. 基本得分/失分獎勵
-    if done:
-        if env_info.get('scorer') == 'player1': # AI (opponent) 失分
-            reward -= 15.0
-            # print(f"Train: AI lost a point. Reward: -15") # <--- 註解或刪除
-        elif env_info.get('scorer') == 'opponent': # AI (opponent) 得分
-            reward += 15.0
-            # print(f"Train: AI scored a point! Reward: +15") # <--- 註解或刪除
-        elif opponent_lives < prev_opponent_lives:
-            reward -= 15.0 # AI 失分
-            # print(f"Train: AI lost a point (lives decreased). Reward: -15") # <--- 註解或刪除
-        elif player1_lives < prev_player1_lives:
-            reward += 15.0 # AI 得分
-            # print(f"Train: AI scored a point (P1 lives decreased)! Reward: +15") # <--- 註解或刪除
+    # 觀察空間索引 (根據 _get_obs() 的定義)
+    AI_PADDLE_X_IDX = 0
+    # AI_PADDLE_VX_IDX = 1 # 暫未使用
+    # AI_PADDLE_W_IDX = 2 # 暫未使用
+    BALL_X_IDX = 6
+    BALL_Y_IDX = 7 # AI 視角 (0=AI方, 1=玩家方)
+    # BALL_VX_IDX = 8 # 暫未使用
+    # BALL_VY_IDX = 9 # 暫未使用
 
-    ball_progress_to_opponent = current_ball_y - prev_ball_y
-    if ball_progress_to_opponent > 0:
-        reward += ball_progress_to_opponent * 2.0
+    ai_paddle_x = current_state[AI_PADDLE_X_IDX]
+    ball_x = current_state[BALL_X_IDX]
+    ball_y = current_state[BALL_Y_IDX] # 這個 ball_y 與參數 current_ball_y 應該是相同的 (都是 AI 視角)
+
+    # --- 核心獎勵 ---
+    # 1. AI 成功擊球獎勵 (主要目標)
+    if env_info.get('ai_hit_ball'):
+        reward += 3.0  # 大幅提高基礎擊球獎勵
+        # print(f"[DEBUG_REWARD_V2] AI hit ball! Base Reward: +10.0")
+
+        # (可選) 根據擊球後的球X座標給予額外獎勵 (打向邊角)
+        # ball_x_after_ai_hit = env_info.get('ball_x_after_ai_hit')
+        # if ball_x_after_ai_hit is not None:
+        #     if ball_x_after_ai_hit < 0.15 or ball_x_after_ai_hit > 0.85:
+        #         reward += 3.0
+        #     elif ball_x_after_ai_hit < 0.3 or ball_x_after_ai_hit > 0.7:
+        #         reward += 1.5
     else:
-        reward += ball_progress_to_opponent * 1.0
+        # --- 如果沒有擊中球，則根據與球的距離給予引導 ---
+        # a. 獎勵/懲罰 AI 球拍在 X 軸上靠近球
+        #   (距離越近，獎勵越高；距離越遠，懲罰越大)
+        #   我們希望 X 軸距離為 0 時獎勵最高。
+        #   用 (1 - X軸距離) 的形式，距離為0時為1，距離為1時為0。
+        #   乘以一個係數來控制獎勵大小。
+        dist_x = abs(ai_paddle_x - ball_x)
+        reward_align_x = (1.0 - dist_x) * 0.5 # 獎勵值範圍 [0, 0.5]
+        reward += reward_align_x
+        # print(f"[DEBUG_REWARD_V2] Align X reward: {reward_align_x:.2f} (dist_x: {dist_x:.2f})")
 
-    if env_info.get('last_hit_by') == 'opponent':
-        reward += 0.5
-        # print(f"Train: AI hit the ball. Reward: +0.5") # <--- 註解或刪除
-        ball_x_after_hit = env_info.get('ball_x_after_hit_by_opponent', 0.5)
-        if ball_x_after_hit < 0.2 or ball_x_after_hit > 0.8:
-            reward += 1.0
-            # print(f"Train: AI hit to corner! x={ball_x_after_hit:.2f}. Reward: +1.0") # <--- 註解或刪除
-    
+
+        # b. 獎勵/懲罰 AI 球拍在 Y 軸上處於可擊球區域
+        #    AI 的球拍在 Y=0 這一側。我們希望球的 Y 座標也靠近 0 (AI方)。
+        #    如果球在 AI 這半邊 (ball_y < 0.5)，給予獎勵，越近越好。
+        #    如果球在對手那半邊 (ball_y >= 0.5)，給予懲罰，越遠懲罰越大。
+        #    這個獎勵的目的是讓 AI 移動到 Y 軸上的正確防守/攻擊位置。
+        PADDLE_EFFECTIVE_REACH_Y = 0.3 # AI 球拍能有效擊打的Y軸範圍 (例如球Y < 0.3)
+                                      # 這個值需要根據球拍厚度、球速等因素調整
+        if ball_y < PADDLE_EFFECTIVE_REACH_Y: # 球在AI的可觸及範圍內
+            # 球越靠近AI的底線 (ball_y 越接近0)，獎勵越高
+            reward_near_y = (PADDLE_EFFECTIVE_REACH_Y - ball_y) * 1.0 # 獎勵值範圍約 [0, 0.3]
+            reward += reward_near_y
+            # print(f"[DEBUG_REWARD_V2] Near Y reward: {reward_near_y:.2f} (ball_y: {ball_y:.2f})")
+
+            # (進階) 如果球在可擊打的Y範圍內，且X也對準了，給額外獎勵
+            if dist_x < 0.1: # 球拍X與球X非常接近
+                 reward += 0.5 # 額外的位置準備獎勵
+                 # print(f"[DEBUG_REWARD_V2] Good Positioning Bonus! Reward: +0.5")
+
+        else: # 球離AI的Y軸較遠
+            # 可以選擇不給懲罰，或者給一個溫和的懲罰，避免AI在球遠離時也積極移動過去
+            reward -= (ball_y - PADDLE_EFFECTIVE_REACH_Y) * 0.1 # 溫和懲罰
+            pass
+
+
+    # 2. 基本得分/失分獎勵 (保持，這是最終目標)
+    if env_info.get('scorer') == 'player1': # AI (opponent) 失分
+        reward -= 3.0 # 可以稍微加大失分懲罰，強調防守
+        # print(f"[DEBUG_REWARD_V2] AI lost a point. Penalty: -20.0")
+    elif env_info.get('scorer') == 'opponent': # AI (opponent) 得分
+        reward += 1.0
+        # print(f"[DEBUG_REWARD_V2] AI scored a point! Reward: +20.0")
+    # 以下的 lives 檢查主要用於 done 但 scorer 未明確設定的情況
+    elif opponent_lives < prev_opponent_lives:
+        reward -= 3.0
+    elif player1_lives < prev_player1_lives:
+        reward += 1.0
+
+
+    # 3. 移除之前可能導致問題的「球移動方向獎勵」
+    # (已移除)
+
+    # 4. 微小的「存活懲罰」，鼓勵 AI 積極行動
+    reward -= 0.02 # 每一步都扣除微小的分數 (可以根據情況調整，0.01 ~ 0.05 之間嘗試)
+
+    # print(f"[DEBUG_REWARD_V2] Final reward for step: {reward:.2f}")
     return reward
-
 
 # --- 訓練主函數 ---
 def train():
@@ -406,12 +464,15 @@ def train():
             action_player1_target_x = np.clip(ball_x_in_obs, 0.0, 1.0)
 
             next_state, _, round_done, game_over, info = env.step(action_player1_target_x, action_opponent_continuous[0])
-            
-            reward = calculate_reward(info, (round_done or game_over), 
+
+            # 注意：我們傳入的是 AI 採取行動前的狀態 `state`，因為獎勵是基於這個狀態下的行動導致的結果 next_state 和 info
+            reward = calculate_reward(state, # <--- 新增的參數
+                                      info, (round_done or game_over),
                                       prev_ball_y_for_reward, next_state[ball_y_in_obs_idx],
                                       env.player1.lives, env.opponent.lives,
                                       prev_p1_lives, prev_opp_lives)
             current_ep_reward += reward
+            # ... (省略部分程式碼) ...
 
             memory.states.append(torch.FloatTensor(state).to(device))
             memory.actions.append(torch.FloatTensor(action_opponent_continuous).to(device))
@@ -430,14 +491,14 @@ def train():
             
             if game_over: # 只有在遊戲真正結束時才跳出內層迴圈
                 break 
-        n = 50
+        print_every = 50
         # 累計最近獎勵
         recent_rewards.append(current_ep_reward)
-        if len(recent_rewards) > n: # 只保留最近10個
+        if len(recent_rewards) > print_every: # 只保留最近10個
             recent_rewards.pop(0)
 
         # 每 10 個回合打印一次該回合的獎勵和最近10回合的平均獎勵
-        if i_episode % n == 0:
+        if i_episode % print_every == 0:
             avg_reward_last_10 = np.mean(recent_rewards) if recent_rewards else 0.0
             print(f"回合: {i_episode}, 總步數: {time_step_counter}, 本回合獎勵: {current_ep_reward:.2f}, 最近10回平均獎勵: {avg_reward_last_10:.2f}")
 

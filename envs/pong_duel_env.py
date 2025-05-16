@@ -339,55 +339,67 @@ class PongDuelEnv:
             pass
 
     def _handle_paddle_collisions(self, old_ball_y, time_scale):
-        collided_this_step = False
-        ts = time_scale
+            # DEBUG_ENV: 修改回傳值，增加一個 info_paddle_collision 字典
+            collided_this_step = False
+            info_paddle_collision = {'ai_hit_ball': False, 'player1_hit_ball': False, 'ball_x_after_ai_hit': None} # DEBUG_ENV: 初始化 info
+            ts = time_scale
 
-        opponent_paddle_surface_y = self.paddle_height_normalized 
-        opponent_paddle_contact_y = opponent_paddle_surface_y + self.ball_radius_normalized
-        opponent_paddle_half_w = self.opponent.paddle_width_normalized / 2
+            opponent_paddle_surface_y = self.paddle_height_normalized
+            opponent_paddle_contact_y = opponent_paddle_surface_y + self.ball_radius_normalized
+            opponent_paddle_half_w = self.opponent.paddle_width_normalized / 2
 
-        if old_ball_y > opponent_paddle_contact_y and self.ball_y <= opponent_paddle_contact_y:
-            if abs(self.ball_x - self.opponent.x) < opponent_paddle_half_w + self.ball_radius_normalized * 0.75:
-                self.ball_y = opponent_paddle_contact_y 
-                vn = self.ball_vy 
-                vt = self.ball_vx 
-                u_paddle = (self.opponent.x - self.opponent.prev_x) / ts if ts != 0 else 0 
-                
-                vn_post, vt_post, omega_post = collide_sphere_with_moving_plane(
-                    vn, vt, u_paddle, self.spin, self.e_ball_paddle, self.mu_ball_paddle, self.mass, self.ball_radius_normalized
-                )
-                self.ball_vy = vn_post
-                self.ball_vx = vt_post
-                self.spin = omega_post
-                self.bounces += 1
-                self._scale_difficulty()
-                self.sound_manager.play_paddle_hit()
-                collided_this_step = True
-        
-        if not collided_this_step:
-            player1_paddle_surface_y = 1.0 - self.paddle_height_normalized 
-            player1_paddle_contact_y = player1_paddle_surface_y - self.ball_radius_normalized 
-            player1_paddle_half_w = self.player1.paddle_width_normalized / 2
-
-            if old_ball_y < player1_paddle_contact_y and self.ball_y >= player1_paddle_contact_y: 
-                if abs(self.ball_x - self.player1.x) < player1_paddle_half_w + self.ball_radius_normalized * 0.75:
-                    self.ball_y = player1_paddle_contact_y 
-                    vn = -self.ball_vy 
+            if old_ball_y > opponent_paddle_contact_y and self.ball_y <= opponent_paddle_contact_y:
+                if abs(self.ball_x - self.opponent.x) < opponent_paddle_half_w + self.ball_radius_normalized * 0.75:
+                    self.ball_y = opponent_paddle_contact_y
+                    vn = self.ball_vy
                     vt = self.ball_vx
-                    u_paddle = (self.player1.x - self.player1.prev_x) / ts if ts != 0 else 0
-                    
+                    u_paddle = (self.opponent.x - self.opponent.prev_x) / ts if ts != 0 else 0
+
                     vn_post, vt_post, omega_post = collide_sphere_with_moving_plane(
                         vn, vt, u_paddle, self.spin, self.e_ball_paddle, self.mu_ball_paddle, self.mass, self.ball_radius_normalized
                     )
-                    self.ball_vy = -vn_post 
+                    self.ball_vy = vn_post
                     self.ball_vx = vt_post
                     self.spin = omega_post
                     self.bounces += 1
                     self._scale_difficulty()
                     self.sound_manager.play_paddle_hit()
                     collided_this_step = True
-        
-        return collided_this_step
+                    # DEBUG_ENV: 標記 AI 擊球
+                    info_paddle_collision['ai_hit_ball'] = True
+                    info_paddle_collision['ball_x_after_ai_hit'] = self.ball_x # 記錄 AI 擊球後的球X座標
+                    if DEBUG_ENV: print(f"[PADDLE_COLLISION_DEBUG] AI hit ball at X: {self.ball_x:.2f}")
+
+
+            if not collided_this_step: # 只有在 AI 沒有擊球時，才檢查玩家是否擊球
+                player1_paddle_surface_y = 1.0 - self.paddle_height_normalized
+                player1_paddle_contact_y = player1_paddle_surface_y - self.ball_radius_normalized
+                player1_paddle_half_w = self.player1.paddle_width_normalized / 2
+
+                if old_ball_y < player1_paddle_contact_y and self.ball_y >= player1_paddle_contact_y:
+                    if abs(self.ball_x - self.player1.x) < player1_paddle_half_w + self.ball_radius_normalized * 0.75:
+                        self.ball_y = player1_paddle_contact_y
+                        vn = -self.ball_vy
+                        vt = self.ball_vx
+                        u_paddle = (self.player1.x - self.player1.prev_x) / ts if ts != 0 else 0
+
+                        vn_post, vt_post, omega_post = collide_sphere_with_moving_plane(
+                            vn, vt, u_paddle, self.spin, self.e_ball_paddle, self.mu_ball_paddle, self.mass, self.ball_radius_normalized
+                        )
+                        self.ball_vy = -vn_post
+                        self.ball_vx = vt_post
+                        self.spin = omega_post
+                        self.bounces += 1
+                        self._scale_difficulty()
+                        self.sound_manager.play_paddle_hit()
+                        collided_this_step = True
+                        # DEBUG_ENV: 標記 Player1 擊球 (雖然訓練 AI 時主要關心 AI 擊球)
+                        info_paddle_collision['player1_hit_ball'] = True
+                        if DEBUG_ENV: print(f"[PADDLE_COLLISION_DEBUG] Player1 hit ball.")
+
+
+            # DEBUG_ENV: 回傳 collided_this_step 和 info_paddle_collision
+            return collided_this_step, info_paddle_collision
 
     def _check_scoring_and_resolve_round(self, collided_with_paddle_this_step):
         round_done = False
@@ -547,25 +559,31 @@ class PongDuelEnv:
         if run_normal_ball_physics:
             self._apply_ball_movement_and_physics(current_time_scale)
             self._handle_wall_collisions()
-            collided_with_paddle_this_step = self._handle_paddle_collisions(old_ball_y_for_collision, current_time_scale)
-            round_done_by_normal_physics, info_from_normal_physics = self._check_scoring_and_resolve_round(collided_with_paddle_this_step)
-            
-            if round_done_by_normal_physics and DEBUG_ENV:
-                print(f"[NORMAL_PHYSICS][PongDuelEnv.step] Round ended by NORMAL physics. Scorer: {info_from_normal_physics.get('scorer')}. P1 Lives: {self.player1.lives}, Opponent Lives: {self.opponent.lives}")
-        
+            # DEBUG_ENV: 修改此處以接收新的 info_paddle_collision
+            collided_with_paddle_this_step, info_from_paddle_collision = self._handle_paddle_collisions(old_ball_y_for_collision, current_time_scale)
+            round_done_by_normal_physics, info_from_scoring = self._check_scoring_and_resolve_round(collided_with_paddle_this_step)
+
+            # DEBUG_ENV: 合併來自 paddle_collision 和 scoring 的 info
+            info_from_normal_physics.update(info_from_paddle_collision) # 先加入擊球信息
+            info_from_normal_physics.update(info_from_scoring)       # 再加入得分信息 (得分信息可能覆蓋某些通用鍵，但我們的鍵是唯一的)
         if round_done_by_normal_physics or self.round_concluded_by_skill :
             game_over_by_normal_physics = self.player1.lives <= 0 or self.opponent.lives <= 0
-            if game_over_by_normal_physics and DEBUG_ENV:
-                print(f"[NORMAL_PHYSICS][PongDuelEnv.step] GAME OVER by NORMAL physics detected.")
 
         final_round_done = round_done_by_normal_physics or self.round_concluded_by_skill
         final_game_over = game_over_by_normal_physics
         
-        final_info_to_return = {'scorer': None}
+        final_info_to_return = {} # DEBUG_ENV: 初始化為空字典
         if self.round_concluded_by_skill:
-            final_info_to_return.update(self.current_round_info)
-        elif round_done_by_normal_physics:
-            final_info_to_return.update(info_from_normal_physics)
+            final_info_to_return.update(self.current_round_info) # current_round_info 來自技能
+        elif round_done_by_normal_physics: # 如果回合是正常物理結束
+            final_info_to_return.update(info_from_normal_physics) # info_from_normal_physics 現在已包含擊球和得分資訊
+        elif 'ai_hit_ball' in info_from_paddle_collision and info_from_paddle_collision['ai_hit_ball']: # DEBUG_ENV: 如果沒有得分，但AI擊球了
+             final_info_to_return.update(info_from_paddle_collision)
+
+
+        # DEBUG_ENV: 增加一個 print 來檢查最終的 final_info_to_return
+        if DEBUG_ENV and (final_info_to_return.get('ai_hit_ball') or final_info_to_return.get('player1_hit_ball') or final_info_to_return.get('scorer')):
+            print(f"[FINAL_INFO_DEBUG][PongDuelEnv.step] final_info_to_return: {final_info_to_return}")
             
         return self._get_obs(), reward, final_round_done, final_game_over, final_info_to_return
 
