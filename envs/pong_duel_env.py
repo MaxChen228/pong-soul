@@ -30,10 +30,6 @@ class PongDuelEnv:
                  initial_main_screen_surface_for_renderer=None
                 ):
 
-        if DEBUG_ENV: print(f"[SKILL_DEBUG][PongDuelEnv.__init__] Initializing with game_mode: {game_mode}")
-        if DEBUG_ENV_FULLSCREEN:
-            print(f"[DEBUG_ENV_FULLSCREEN][PongDuelEnv.__init__] Received initial_main_screen_surface: {type(initial_main_screen_surface_for_renderer)}")
-
         self.game_mode = game_mode
         self.sound_manager = SoundManager()
         self.renderer = None
@@ -116,12 +112,10 @@ class PongDuelEnv:
         self.round_concluded_by_skill = False
         self.current_round_info = {}
 
-        if DEBUG_ENV: print("[SKILL_DEBUG][PongDuelEnv.__init__] Env Initialization complete (skills linked).")
         self.reset()
 
     def _create_skill(self, skill_code, owner_player_state):
         if not skill_code or skill_code.lower() == 'none':
-            if DEBUG_ENV: print(f"[SKILL_DEBUG][PongDuelEnv._create_skill] No skill_code provided for {owner_player_state.identifier}.")
             return None
         available_skills = {
             "long_paddle": LongPaddleSkill,
@@ -132,19 +126,13 @@ class PongDuelEnv:
         if skill_class:
             try:
                 skill_instance = skill_class(self, owner_player_state)
-                if DEBUG_ENV: print(f"[SKILL_DEBUG][PongDuelEnv._create_skill] Created skill '{skill_code}' for {owner_player_state.identifier}.")
                 return skill_instance
             except Exception as e:
-                print(f"[SKILL_DEBUG][PongDuelEnv._create_skill] Error creating skill '{skill_code}' for {owner_player_state.identifier}: {e}")
                 return None
         else:
-            print(f"[SKILL_DEBUG][PongDuelEnv._create_skill] Unknown skill_code '{skill_code}' for {owner_player_state.identifier}.")
             return None
         
     def set_ball_visual_override(self, skill_identifier: str, active: bool, owner_identifier: str = None):
-        if DEBUG_ENV: 
-            print(f"[SKILL_DEBUG][PongDuelEnv.set_ball_visual_override] Called by skill '{skill_identifier}', active: {active}, owner: {owner_identifier}")
-
         if active:
             if self.active_ball_visual_skill_owner is None or self.active_ball_visual_skill_owner == owner_identifier:
                 self.ball_visual_key = skill_identifier
@@ -162,16 +150,10 @@ class PongDuelEnv:
 
     def activate_skill(self, player_state_object):
         if player_state_object and player_state_object.skill_instance:
-            if DEBUG_ENV: print(f"[SKILL_DEBUG][PongDuelEnv.activate_skill] Attempting to activate skill for {player_state_object.identifier}.")
             activated = player_state_object.skill_instance.activate()
-            if activated:
-                 if DEBUG_ENV: print(f"[SKILL_DEBUG][PongDuelEnv.activate_skill] Skill for {player_state_object.identifier} ACTIVATED successfully.")
-            else:
-                 if DEBUG_ENV: print(f"[SKILL_DEBUG][PongDuelEnv.activate_skill] Skill for {player_state_object.identifier} FAILED to activate.")
         elif DEBUG_ENV:
             owner_id = player_state_object.identifier if player_state_object else "UNKNOWN_PLAYER_OBJECT"
             has_skill_instance = "YES" if player_state_object and player_state_object.skill_instance else "NO"
-            print(f"[SKILL_DEBUG][PongDuelEnv.activate_skill] Cannot activate skill for {owner_id}, skill_instance present: {has_skill_instance}.")
 
     def reset_ball_after_score(self, scored_by_player1):
         if DEBUG_ENV: print(f"[PongDuelEnv.reset_ball_after_score] Ball reset. Scored by player1: {scored_by_player1}")
@@ -201,14 +183,11 @@ class PongDuelEnv:
         self.ball_vy = self.initial_ball_speed * np.cos(angle_rad) * vy_sign
 
         if self.player1.skill_instance and self.player1.skill_instance.is_active():
-            if DEBUG_ENV: print(f"[SKILL_DEBUG][PongDuelEnv.reset_ball_after_score] Deactivating P1 skill: {self.player1.skill_instance.__class__.__name__}")
             self.player1.skill_instance.deactivate()
         if self.opponent.skill_instance and self.opponent.skill_instance.is_active():
-            if DEBUG_ENV: print(f"[SKILL_DEBUG][PongDuelEnv.reset_ball_after_score] Deactivating Opponent skill: {self.opponent.skill_instance.__class__.__name__}")
             self.opponent.skill_instance.deactivate()
 
     def reset(self):
-        if DEBUG_ENV: print("[SKILL_DEBUG][PongDuelEnv.reset] Full reset triggered.")
         self.player1.reset_state()
         self.opponent.reset_state()
         self.ball_visual_key = "default"
@@ -547,7 +526,6 @@ class PongDuelEnv:
         self._update_active_skills()
 
         if self.round_concluded_by_skill:
-            if DEBUG_ENV: print(f"[SKILL_DEBUG][PongDuelEnv.step] Round concluded by SKILL. Info: {self.current_round_info}")
             game_over_after_skill = self.player1.lives <= 0 or self.opponent.lives <= 0
             final_info = {'scorer': None}
             final_info.update(self.current_round_info)

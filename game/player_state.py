@@ -32,8 +32,6 @@ class PlayerState:
         self.paddle_width_normalized = self.paddle_width / env_render_size if env_render_size > 0 else 0
         self.base_paddle_width_normalized = self.base_paddle_width / env_render_size if env_render_size > 0 else 0
 
-        print(f"[SKILL_DEBUG][PlayerState] ({self.identifier}) Initialized: x={self.x}, paddle_width={self.paddle_width}, lives={self.lives}, skill_code='{self.skill_code_name}', color={self.paddle_color}")
-
     def update_paddle_width_normalized(self, new_width_pixels): # 移除 env_render_size 參數，使用 self.env_render_size
         self.paddle_width = new_width_pixels
         self.paddle_width_normalized = self.paddle_width / self.env_render_size if self.env_render_size > 0 else 0
@@ -49,7 +47,4 @@ class PlayerState:
         self.paddle_color = self.base_paddle_color
 
         if self.skill_instance and hasattr(self.skill_instance, 'deactivate') and self.skill_instance.is_active():
-            print(f"[SKILL_DEBUG][PlayerState] ({self.identifier}) Deactivating skill during reset.")
             self.skill_instance.deactivate() # 確保技能被停用
-
-        print(f"[SKILL_DEBUG][PlayerState] ({self.identifier}) State reset: x={self.x}, paddle_width={self.paddle_width}, color={self.paddle_color}")

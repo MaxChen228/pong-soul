@@ -227,10 +227,10 @@ class Memory:
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 OBS_DIM = 15  # 根據我們最新的 _get_obs()
 ACTION_DIM = 1 # 連續目標X座標
-MAX_EPISODES = 100
+MAX_EPISODES = 10000
 MAX_TIMESTEPS_PER_EPISODE = 1000 # 每回合最大步數
-UPDATE_TIMESTEPS = 100  # 每收集這麼多步數後更新一次網路
-SAVE_MODEL_FREQ = 100000 # 每多少步儲存一次模型 (或者按 episode)
+UPDATE_TIMESTEPS = 4096  # 每收集這麼多步數後更新一次網路
+SAVE_MODEL_FREQ = 500000 # 每多少步儲存一次模型 (或者按 episode)
 MODEL_DIR = "ppo_models" # 模型儲存目錄
 os.makedirs(MODEL_DIR, exist_ok=True)
 MODEL_NAME_PREFIX = "ppo_pong_strategic_ai"
@@ -253,52 +253,31 @@ def calculate_reward(env_info, done, prev_ball_y, current_ball_y, player1_lives,
     if done:
         if env_info.get('scorer') == 'player1': # AI (opponent) 失分
             reward -= 15.0
-            print(f"Train: AI lost a point. Reward: -15")
+            # print(f"Train: AI lost a point. Reward: -15") # <--- 註解或刪除
         elif env_info.get('scorer') == 'opponent': # AI (opponent) 得分
             reward += 15.0
-            print(f"Train: AI scored a point! Reward: +15")
-        # 如果是 AI (opponent) 的生命值減少了，代表 AI 被得分了
+            # print(f"Train: AI scored a point! Reward: +15") # <--- 註解或刪除
         elif opponent_lives < prev_opponent_lives:
             reward -= 15.0 # AI 失分
-            print(f"Train: AI lost a point (lives decreased). Reward: -15")
-        # 如果是 player1 的生命值減少了，代表 AI 得分了
+            # print(f"Train: AI lost a point (lives decreased). Reward: -15") # <--- 註解或刪除
         elif player1_lives < prev_player1_lives:
             reward += 15.0 # AI 得分
-            print(f"Train: AI scored a point (P1 lives decreased)! Reward: +15")
+            # print(f"Train: AI scored a point (P1 lives decreased)! Reward: +15") # <--- 註解或刪除
 
-
-    # 2. 鼓勵球向對方半場移動 (從AI角度看，球的Y座標變大是好事)
-    # AI是opponent (top paddle)，球的Y座標變大意味著球飛向人類玩家
-    # prev_ball_y 和 current_ball_y 都是 [0,1] 正規化，0是AI方，1是P1方
     ball_progress_to_opponent = current_ball_y - prev_ball_y
-    if ball_progress_to_opponent > 0: # 球正在遠離AI，飛向P1
-        reward += ball_progress_to_opponent * 2.0 # 數值可以調整
-    else: # 球正在飛向AI
-        reward += ball_progress_to_opponent * 1.0 # 較小的懲罰或較小的負獎勵
+    if ball_progress_to_opponent > 0:
+        reward += ball_progress_to_opponent * 2.0
+    else:
+        reward += ball_progress_to_opponent * 1.0
 
-    # 3. 鼓勵擊中球 (如果能從 env_info 獲知 AI 是否剛擊球)
-    # PongDuelEnv._handle_paddle_collisions 中有 sound_manager.play_paddle_hit()
-    # 但 env_info 目前沒有直接標記誰擊球。
-    # 可以修改 PongDuelEnv 在碰撞時，在 info 中加入 "last_hit_by": "opponent" 或 "player1"
-    # 假設 info 中有 'last_hit_by' 且為 'opponent' (AI)
-    if env_info.get('last_hit_by') == 'opponent': # 假設我們在PongDuelEnv中加入了這個info
-        reward += 0.5  # 成功擊球的小獎勵
-        # print(f"Train: AI hit the ball. Reward: +0.5")
-
-        # 3.1 鼓勵策略性擊球 - 例如打向邊角 (需要球的X座標)
-        ball_x_after_hit = env_info.get('ball_x_after_hit_by_opponent', 0.5) # 假設info提供
+    if env_info.get('last_hit_by') == 'opponent':
+        reward += 0.5
+        # print(f"Train: AI hit the ball. Reward: +0.5") # <--- 註解或刪除
+        ball_x_after_hit = env_info.get('ball_x_after_hit_by_opponent', 0.5)
         if ball_x_after_hit < 0.2 or ball_x_after_hit > 0.8:
-            reward += 1.0 # 打向邊角獎勵
-            # print(f"Train: AI hit to corner! x={ball_x_after_hit:.2f}. Reward: +1.0")
+            reward += 1.0
+            # print(f"Train: AI hit to corner! x={ball_x_after_hit:.2f}. Reward: +1.0") # <--- 註解或刪除
     
-    # 4. 避免球拍不動 (輕微懲罰或無獎勵)
-    # current_action = env_info.get('ai_action_taken') # 需要env將AI的action也放入info
-    # if current_action is not None and abs(current_action - 0.5) < 0.05: # 假設action是目標位置，0.5是中間
-    #     reward -= 0.01 # 輕微懲罰長時間不動
-
-    # 5. 時間懲罰 (鼓勵快速結束回合，但要小心)
-    # reward -= 0.005 # 每一步都有一點小懲罰
-
     return reward
 
 
@@ -396,86 +375,79 @@ def train():
         start_episode = checkpoint.get('episode_count', 0)
         print(f"從 episode {start_episode}, time_step {time_step_counter} 繼續訓練。")
 
-
+    recent_rewards = []
     # --- 訓練迴圈 ---
     for i_episode in range(start_episode + 1, MAX_EPISODES + 1):
         episode_count = i_episode
-        state, _ = env.reset() # state 是 numpy array
+        state, _ = env.reset() 
         current_ep_reward = 0
         
-        prev_ball_y_for_reward = state[7] # ball_y 在 obs 中的索引 (假設我們的 _get_obs 順序)
-                                           # 需要根據 _get_obs 的實際順序調整索引
-                                           # AI (opp) y=state[0], P1 y=state[3], Ball x=state[6], Ball y=state[7]
-                                           # Spin=state[10]
-                                           # Paddle Widths: opp_w=state[2], p1_w=state[5]
+        # ⭐️ 確保 ball_y_in_obs_idx 與您的 _get_obs() 匹配 (我們上次確認是7)
+        ball_y_in_obs_idx = 7 # 假設 Ball Y 在觀察向量中的索引是 7
+        if state.shape[0] <= ball_y_in_obs_idx:
+            print(f"錯誤：觀察維度 ({state.shape[0]}) 過小，無法獲取索引 {ball_y_in_obs_idx} 的 ball_y。請檢查 OBS_DIM 和 _get_obs()。")
+            return # 或者拋出錯誤
+
+        prev_ball_y_for_reward = state[ball_y_in_obs_idx] 
 
         prev_p1_lives = env.player1.lives
         prev_opp_lives = env.opponent.lives
 
         for t in range(MAX_TIMESTEPS_PER_EPISODE):
             time_step_counter += 1
-            if t == 0 and i_episode % 10 == 0: # 每10回合的第一步打印一次，避免過多輸出
-                print(f"DEBUG [train loop]: Episode {i_episode}, Timestep {t}, state.shape = {state.shape}")
-            # AI (opponent) 選擇動作
-            action_opponent_continuous, action_log_prob = ppo_agent.select_action(state)
-            # action_opponent_continuous 是一個 numpy array, e.g. array([0.523])
-
-            # Player 1 的動作 (簡易規則型對手：嘗試跟隨球的X座標)
-            # 這裡的 state 是從 env._get_obs() 來的，是 AI 的視角
-            ball_x_in_obs = state[6] # ball_x 在 obs 中的索引 (假設)
-            action_player1_target_x = np.clip(ball_x_in_obs, 0.0, 1.0) # P1 嘗試跟隨球
-
-            # 環境交互
-            next_state, _, round_done, game_over, info = env.step(action_player1_target_x, action_opponent_continuous[0])
-            # reward 在 env.step 中是 0，我們在下面自己計算
             
-            # 計算獎勵
+            action_opponent_continuous, action_log_prob = ppo_agent.select_action(state)
+            
+            ball_x_in_obs_idx = 6 # 假設 Ball X 在觀察向量中的索引是 6
+            if state.shape[0] <= ball_x_in_obs_idx:
+                 print(f"錯誤：觀察維度 ({state.shape[0]}) 過小，無法獲取索引 {ball_x_in_obs_idx} 的 ball_x。")
+                 return
+            ball_x_in_obs = state[ball_x_in_obs_idx]
+            action_player1_target_x = np.clip(ball_x_in_obs, 0.0, 1.0)
+
+            next_state, _, round_done, game_over, info = env.step(action_player1_target_x, action_opponent_continuous[0])
+            
             reward = calculate_reward(info, (round_done or game_over), 
-                                      prev_ball_y_for_reward, next_state[7], # ball_y
+                                      prev_ball_y_for_reward, next_state[ball_y_in_obs_idx],
                                       env.player1.lives, env.opponent.lives,
                                       prev_p1_lives, prev_opp_lives)
             current_ep_reward += reward
 
-            # 儲存經驗
             memory.states.append(torch.FloatTensor(state).to(device))
-            memory.actions.append(torch.FloatTensor(action_opponent_continuous).to(device)) # 儲存連續動作
+            memory.actions.append(torch.FloatTensor(action_opponent_continuous).to(device))
             memory.log_probs.append(action_log_prob)
             memory.rewards.append(reward)
-            memory.is_terminals.append(round_done or game_over) # 一回合結束或遊戲結束都算 terminal
+            memory.is_terminals.append(round_done or game_over)
 
-            # 更新網路
             if time_step_counter % UPDATE_TIMESTEPS == 0:
-                print(f"  Timestep {time_step_counter}: 更新 PPO 網路...")
+                # print(f"  總步數 {time_step_counter}: 更新 PPO 網路...") # 保留這個，比較重要
                 ppo_agent.update(memory)
-                # memory.clear_memory() # update 內部已清除
-
-            # 更新 prev 狀態用於獎勵計算
-            prev_ball_y_for_reward = next_state[7]
+            
+            prev_ball_y_for_reward = next_state[ball_y_in_obs_idx]
             prev_p1_lives = env.player1.lives
             prev_opp_lives = env.opponent.lives
             state = next_state
             
-            if round_done or game_over:
-                # 如果只是 round_done 但 game_over 是 False，遊戲會自動重置球並繼續在同一 episode
-                # PongDuelEnv 的 reset_ball_after_score 處理這個
-                # 如果是 game_over (一方生命為0)，則此 episode 真正結束
-                if game_over:
-                    break 
-                else: # 僅回合結束，重置生命值記錄 (因為env內部可能已重置生命值開始新回合)
-                    # 這部分邏輯可能需要調整，取決於env.reset()是否在round_done後自動調用
-                    # PongDuelEnv 在 round_done 但非 game_over 時，不會重置 lives，只重置球
-                    # 所以 prev_p1_lives 和 prev_opp_lives 在回合間應該是連續的
-                    pass
+            if game_over: # 只有在遊戲真正結束時才跳出內層迴圈
+                break 
+        n = 50
+        # 累計最近獎勵
+        recent_rewards.append(current_ep_reward)
+        if len(recent_rewards) > n: # 只保留最近10個
+            recent_rewards.pop(0)
 
+        # 每 10 個回合打印一次該回合的獎勵和最近10回合的平均獎勵
+        if i_episode % n == 0:
+            avg_reward_last_10 = np.mean(recent_rewards) if recent_rewards else 0.0
+            print(f"回合: {i_episode}, 總步數: {time_step_counter}, 本回合獎勵: {current_ep_reward:.2f}, 最近10回平均獎勵: {avg_reward_last_10:.2f}")
 
-        print(f"Episode: {i_episode}, Timesteps: {t+1}, Total Timesteps: {time_step_counter}, Reward: {current_ep_reward:.2f}")
-
-        # 定期儲存模型
-        if i_episode % (SAVE_MODEL_FREQ // MAX_TIMESTEPS_PER_EPISODE) == 0 or i_episode == MAX_EPISODES: # 近似按 timestep 儲存
+        # 定期儲存模型 (保持不變)
+        if i_episode % (SAVE_MODEL_FREQ // MAX_TIMESTEPS_PER_EPISODE if MAX_TIMESTEPS_PER_EPISODE > 0 else SAVE_MODEL_FREQ) == 0 or i_episode == MAX_EPISODES:
+            # ... (儲存模型的邏輯不變) ...
             path = os.path.join(MODEL_DIR, f"{MODEL_NAME_PREFIX}_episode_{i_episode}.pth")
             latest_path = os.path.join(MODEL_DIR, f"{MODEL_NAME_PREFIX}_latest.pth")
             
-            print(f"儲存模型到 {path}")
+            print(f"儲存模型到 {path}") # 保留儲存模型的打印
             torch.save({
                 'episode_count': i_episode,
                 'time_step_counter': time_step_counter,
@@ -484,8 +456,7 @@ def train():
                 'optimizer_actor_state_dict': ppo_agent.optimizer_actor.state_dict(),
                 'optimizer_critic_state_dict': ppo_agent.optimizer_critic.state_dict(),
             }, path)
-            # 更新 latest 模型
-            torch.save({
+            torch.save({ # 也更新 latest
                 'episode_count': i_episode,
                 'time_step_counter': time_step_counter,
                 'actor_state_dict': ppo_agent.actor.state_dict(),
@@ -493,6 +464,7 @@ def train():
                 'optimizer_actor_state_dict': ppo_agent.optimizer_actor.state_dict(),
                 'optimizer_critic_state_dict': ppo_agent.optimizer_critic.state_dict(),
             }, latest_path)
+
 
     print("訓練完成。")
     env.close()
