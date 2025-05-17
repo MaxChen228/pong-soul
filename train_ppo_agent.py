@@ -1,68 +1,98 @@
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torch.distributions import Normal # 用於連續動作的隨機抽樣
+from torch.distributions import Normal
 import numpy as np
 import os
-import pygame # PongDuelEnv 需要 pygame
+import pygame # Pygame 始終導入
+import yaml
+import argparse
+import random
+import time # 新增: 用於控制渲染幀率
 
-# 從專案中導入必要的類別
 from envs.pong_duel_env import PongDuelEnv
-from game.settings import GameSettings # PongDuelEnv 可能會間接使用
-from game.config_manager import ConfigManager # PongDuelEnv 可能需要
-from utils import resource_path # AIAgent 和 PongDuelEnv 可能需要
+from game.settings import GameSettings
+from game.config_manager import ConfigManager as GameConfigManager
+from utils import resource_path
 
-# --- Actor-Critic 網路定義 ---
-# 注意：這個 Actor 網路與 game/ai_agent.py 中的 QNet (現在輸出連續動作) 角色類似。
-# 在 PPO 中，我們通常明確區分 Actor 和 Critic。
-# 您可以選擇將 game/ai_agent.py 中的 QNet 直接用作此處的 Actor，或者重新定義。
-# 為了訓練的獨立性，這裡重新定義 Actor 和 Critic。
+# 全域變數
+device = None
+train_config = None
+# 新增: 用於渲染的 Pygame screen 物件
+render_screen = None
+# 新增: 用於渲染的 Pygame clock 物件
+render_clock = None
 
+# --- 配置加載函數 (保持不變) ---
+def load_config_from_yaml(config_path):
+    # ... (與您現有版本相同) ...
+    try:
+        with open(config_path, 'r', encoding='utf-8') as f:
+            cfg = yaml.safe_load(f)
+        print(f"成功從 {config_path} 加載訓練配置。")
+        return cfg
+    except FileNotFoundError:
+        print(f"錯誤: 訓練配置文件 {config_path} 未找到。請確保路徑正確。")
+        exit(1)
+    except yaml.YAMLError as e:
+        print(f"錯誤: 解析訓練配置文件 {config_path} 失敗: {e}")
+        exit(1)
+    except Exception as e:
+        print(f"錯誤: 加載訓練配置文件 {config_path} 時發生未知錯誤: {e}")
+        exit(1)
+
+# --- Actor-Critic 網路定義 (保持不變) ---
 def init_weights(m):
+    # ... (與您現有版本相同) ...
     if isinstance(m, nn.Linear):
         nn.init.orthogonal_(m.weight.data, gain=nn.init.calculate_gain('relu'))
         if m.bias is not None:
             nn.init.constant_(m.bias.data, 0)
 
 class Actor(nn.Module):
-    def __init__(self, state_dim, action_dim, hidden_dim=128, log_std_min=-20, log_std_max=2):
+    def __init__(self, state_dim, action_dim, network_cfg):
         super(Actor, self).__init__()
-        self.log_std_min = log_std_min
-        self.log_std_max = log_std_max
-        
+        self.log_std_min = network_cfg['log_std_min']
+        self.log_std_max = network_cfg['log_std_max']
+        hidden_dim = network_cfg['actor_hidden_dim']
+
         self.net = nn.Sequential(
             nn.Linear(state_dim, hidden_dim),
             nn.ReLU(),
             nn.Linear(hidden_dim, hidden_dim),
             nn.ReLU()
         )
-        # 輸出動作的均值
         self.mean_layer = nn.Linear(hidden_dim, action_dim)
-        # 輸出動作的對數標準差 (可訓練參數)
-        self.log_std_layer = nn.Linear(hidden_dim, action_dim) # 或者使用 nn.Parameter(torch.zeros(1, action_dim))
+        self.tanh = nn.Tanh()
+        self.log_std_layer = nn.Linear(hidden_dim, action_dim)
 
         self.apply(init_weights)
+        init_log_std_bias = network_cfg.get('init_log_std_bias', -1.0)
+        init_log_std_weights_limit = network_cfg.get('init_log_std_weights_uniform_abs_limit', 0.001)
+        if init_log_std_weights_limit is not None:
+             nn.init.uniform_(self.log_std_layer.weight.data, -init_log_std_weights_limit, init_log_std_weights_limit)
+        if init_log_std_bias is not None:
+            nn.init.constant_(self.log_std_layer.bias.data, init_log_std_bias)
 
     def forward(self, state):
         x = self.net(state)
-        mean = self.mean_layer(x)
-        
-        # 讓 log_std 也是網路的一部分，或者作為獨立的可訓練參數
+        mean_before_tanh = self.mean_layer(x)
+        mean_tanh = self.tanh(mean_before_tanh)
+        mean_scaled_to_0_1 = (mean_tanh + 1.0) / 2.0    
         log_std = self.log_std_layer(x)
-        log_std = torch.clamp(log_std, self.log_std_min, self.log_std_max)
-        # std = torch.exp(log_std) # 標準差必須是正數
-        
-        return mean, log_std
+        log_std = torch.clamp(log_std, self.log_std_min, self.log_std_max) 
+        return mean_scaled_to_0_1, log_std
 
 class Critic(nn.Module):
-    def __init__(self, state_dim, hidden_dim=128):
+    def __init__(self, state_dim, network_cfg):
         super(Critic, self).__init__()
+        hidden_dim = network_cfg['critic_hidden_dim']
         self.net = nn.Sequential(
             nn.Linear(state_dim, hidden_dim),
             nn.ReLU(),
             nn.Linear(hidden_dim, hidden_dim),
             nn.ReLU(),
-            nn.Linear(hidden_dim, 1) # 輸出一個狀態價值 V(s)
+            nn.Linear(hidden_dim, 1)
         )
         self.apply(init_weights)
 
@@ -70,145 +100,119 @@ class Critic(nn.Module):
         return self.net(state)
 
 class PPOAgent:
-    def __init__(self, state_dim, action_dim, lr_actor=3e-4, lr_critic=1e-3, gamma=0.99, K_epochs=10, eps_clip=0.2, gae_lambda=0.95, hidden_dim=128, action_std_init=0.6):
-        self.gamma = gamma
-        self.eps_clip = eps_clip
-        self.K_epochs = K_epochs
-        self.gae_lambda = gae_lambda
+    # ... (PPOAgent 類別的 __init__, select_action, update 方法保持與您配置化後的版本一致) ...
+    def __init__(self, state_dim, action_dim, ppo_cfg, network_cfg): # 接收配置字典
+        self.gamma = ppo_cfg['gamma']
+        self.eps_clip = ppo_cfg['eps_clip']
+        self.K_epochs = ppo_cfg['k_epochs']
+        self.gae_lambda = ppo_cfg['gae_lambda']
+        self.entropy_coefficient = ppo_cfg['entropy_coefficient']
 
-        self.actor = Actor(state_dim, action_dim, hidden_dim).to(device)
-        self.critic = Critic(state_dim, hidden_dim).to(device)
+        self.actor = Actor(state_dim, action_dim, network_cfg).to(device)
+        self.critic = Critic(state_dim, network_cfg).to(device)
         
-        self.optimizer_actor = optim.Adam(self.actor.parameters(), lr=lr_actor)
-        self.optimizer_critic = optim.Adam(self.critic.parameters(), lr=lr_critic)
+        self.optimizer_actor = optim.Adam(self.actor.parameters(), lr=ppo_cfg['lr_actor'])
+        self.optimizer_critic = optim.Adam(self.critic.parameters(), lr=ppo_cfg['lr_critic'])
 
-        # 用於儲存舊策略網路的參數，PPO 需要 actor_old 來計算比例
-        self.actor_old = Actor(state_dim, action_dim, hidden_dim).to(device)
+        self.actor_old = Actor(state_dim, action_dim, network_cfg).to(device)
         self.actor_old.load_state_dict(self.actor.state_dict())
         
         self.mse_loss = nn.MSELoss()
 
-        # 動作標準差的初始化 (對於連續動作)
-        # 如果 log_std 是網路輸出，則不需要這個
-        # self.action_log_std = nn.Parameter(torch.ones(1, action_dim) * np.log(action_std_init)).to(device)
-
-
     def select_action(self, state):
         with torch.no_grad():
             state_tensor = torch.FloatTensor(state.reshape(1, -1)).to(device)
-            mean, log_std = self.actor_old(state_tensor) # 從舊策略中採樣
+            mean, log_std = self.actor_old(state_tensor)
             std = torch.exp(log_std)
             
             dist = Normal(mean, std)
             action = dist.sample()
             action_log_prob = dist.log_prob(action)
-            
-            # 將動作限制在環境的有效範圍內，例如 Pong 球拍目標X是 [0, 1]
-            # Actor 網路的輸出 mean 本身沒有 tanh，所以 dist.sample() 可能超出範圍
-            # 通常 Actor 的最後一層會加 tanh 讓 mean 在 [-1, 1]
-            # 然後再根據環境的 action_scale 和 action_bias 調整
-            # 假設我們的 PongEnv 動作是正規化的 [0,1] 目標位置
-            # 如果 Actor 的 mean_layer 後面沒有 tanh:
-            action_clipped = torch.clamp(mean + std * torch.randn_like(std), 0.0, 1.0) # 一種處理方式
-            # 或者，如果 Actor 的 mean_layer 後面有 tanh，輸出 action_mean in [-1,1]
-            # action_env_scale = 0.5 # (upper_bound - lower_bound) / 2
-            # action_env_bias = 0.5 # (upper_bound + lower_bound) / 2
-            # action_final = torch.tanh(action) * action_env_scale + action_env_bias
-
-            # 簡化：假設 Actor 的 forward 方法返回的 mean 已經是 [0,1] (例如內部有 (tanh+1)/2 )
-            # 或者我們在這裡 clip
-            # 如果 Actor 的 forward 返回的是 (-inf, inf) 的 mean, 和 log_std
-            # 我們的 game.ai_agent.py 中的 QNet/Actor 是輸出了 [0,1] 的均值
-            # 但這裡的 Actor 網路輸出 mean 和 log_std，需要從 Normal 分佈中採樣
-            # 採樣後的值可能是任意的，需要 clip
-            
-            # 假設我們的環境動作是單一維度 [0,1]
-            # PPO 的 Actor 通常輸出分佈的參數 (mean, std)，而不是直接的動作值然後加噪聲
-            # 讓我們假設 Actor 輸出的 mean 是 [-inf, inf]，std 是正的
-            # 採樣後的值 action 需要被 clip 到 [0,1] for Pong target X
-            # 並且，為了計算 log_prob，我們通常不對 action 本身做 tanh 轉換後再給 Normal distribution
-            # 而是 Normal distribution 產生動作，然後再 clip / scale 到環境範圍
-
             action_env = torch.clamp(action, 0.0, 1.0)
 
         return action_env.cpu().numpy().flatten(), action_log_prob.cpu()
 
-    def update(self, memory):
-        # Monte Carlo estimate of returns
-        rewards = []
+    def update(self, memory, logging_cfg_update): # 傳入日誌配置
+        rewards_gae = []
         discounted_reward = 0
         for reward, is_terminal in zip(reversed(memory.rewards), reversed(memory.is_terminals)):
             if is_terminal:
                 discounted_reward = 0
             discounted_reward = reward + (self.gamma * discounted_reward)
-            rewards.insert(0, discounted_reward)
+            rewards_gae.insert(0, discounted_reward)
             
-        # Normalizing the rewards
-        rewards = torch.tensor(rewards, dtype=torch.float32).to(device)
-        rewards = (rewards - rewards.mean()) / (rewards.std() + 1e-7)
+        rewards_gae = torch.tensor(rewards_gae, dtype=torch.float32).to(device)
+        rewards_gae = (rewards_gae - rewards_gae.mean()) / (rewards_gae.std() + 1e-7)
 
-        # convert list to tensor
         old_states = torch.squeeze(torch.stack(memory.states, dim=0)).detach().to(device)
         old_actions = torch.squeeze(torch.stack(memory.actions, dim=0)).detach().to(device)
         old_log_probs = torch.squeeze(torch.stack(memory.log_probs, dim=0)).detach().to(device)
         
-        # Optimize policy for K epochs
-        for _ in range(self.K_epochs):
-            # Evaluating old actions and values
+        if not hasattr(self, 'update_call_count'):
+            self.update_call_count = 0
+        self.update_call_count += 1
+
+        for epoch_k in range(self.K_epochs):
             mean_new, log_std_new = self.actor(old_states)
             std_new = torch.exp(log_std_new)
             dist_new = Normal(mean_new, std_new)
             
-            # Action log probabilities
             log_probs_new = dist_new.log_prob(old_actions)
-            
-            # State values V(s)
             state_values = self.critic(old_states)
             state_values = torch.squeeze(state_values)
 
-            # Importance PPO Ratio: r_t(theta) = pi_theta(a_t | s_t) / pi_theta_k(a_t | s_t)
             ratios = torch.exp(log_probs_new - old_log_probs.detach())
+            advantages = rewards_gae - state_values.detach()
+            advantages_normalized = (advantages - advantages.mean()) / (advantages.std() + 1e-7)
+            
+            surr1 = ratios * advantages_normalized
+            surr2 = torch.clamp(ratios, 1 - self.eps_clip, 1 + self.eps_clip) * advantages_normalized
+            
+            loss_actor_policy = -torch.min(surr1, surr2).mean()
+            loss_critic = self.mse_loss(state_values, rewards_gae)
+            
+            dist_entropy_val = dist_new.entropy().mean()
+            loss_entropy_term = self.entropy_coefficient * dist_entropy_val 
+            total_actor_loss = loss_actor_policy - loss_entropy_term
 
-            # Advantages A_t = R_t - V(s_t)
-            advantages = rewards - state_values.detach()
-            # Normalize advantages (optional but often helpful)
-            advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-7)
-            
-            # Surrogate Loss (PPO-Clip objective)
-            surr1 = ratios * advantages
-            surr2 = torch.clamp(ratios, 1 - self.eps_clip, 1 + self.eps_clip) * advantages
-            
-            # Actor loss
-            loss_actor = -torch.min(surr1, surr2).mean()
-            
-            # Critic loss (Value function loss)
-            loss_critic = self.mse_loss(state_values, rewards) # V(s) should approximate R_t
-            
-            # Entropy loss (optional, for exploration)
-            dist_entropy = dist_new.entropy().mean()
-            loss_entropy = -0.01 * dist_entropy # 0.01 is a common coefficient
+            if logging_cfg_update['enable'] and \
+               logging_cfg_update.get('log_every_n_updates', 1) > 0 and \
+               self.update_call_count % logging_cfg_update['log_every_n_updates'] == 0 and \
+               logging_cfg_update.get('log_at_k_epoch_num', 1) > 0 and \
+               epoch_k == (logging_cfg_update['log_at_k_epoch_num'] -1) and \
+               len(old_states) > 0:
+                sample_idx_to_log = 0
+                if len(old_states) > sample_idx_to_log:
+                    if logging_cfg_update.get('print_full_state_vector_for_sample', False):
+                        state_sample_str = str(old_states[sample_idx_to_log, :].cpu().numpy())
+                    else:
+                        state_sample_str = f"OppX:{old_states[sample_idx_to_log, 0].item():.2f} BallX:{old_states[sample_idx_to_log, 6].item():.2f} BallY:{old_states[sample_idx_to_log, 7].item():.2f} RelBallOppX:{old_states[sample_idx_to_log, 11].item():.2f}"
+                    
+                    print(f"PPO_UPDATE_LOG --- UpdateCall: {self.update_call_count}, K_Epoch: {epoch_k}, SampleIdx: {sample_idx_to_log} ---")
+                    print(f"  State: {state_sample_str}")
+                    print(f"  V(s_t) (Critic Value): {state_values[sample_idx_to_log].item():.4f}")
+                    print(f"  R_t (GAE Target for V): {rewards_gae[sample_idx_to_log].item():.4f}")
+                    print(f"  Advantage (Normalized): {advantages_normalized[sample_idx_to_log].item():.4f}")
+                    print(f"  Actor New Output | Mean: {mean_new[sample_idx_to_log].item():.4f}, LogStd: {log_std_new[sample_idx_to_log].item():.4f}")
+                    entropy_float = dist_entropy_val.item() if isinstance(dist_entropy_val, torch.Tensor) else float(dist_entropy_val)
+                    print(f"  Losses | Policy: {loss_actor_policy.item():.4f}, Critic: {loss_critic.item():.4f}, EntropyTerm: {loss_entropy_term.item():.4f} (RawEntropy: {entropy_float:.4f})")
+                    print("--------------------------------------------------------------------")
 
-            # Total loss for actor
-            total_actor_loss = loss_actor + loss_entropy
-
-            # Update actor
             self.optimizer_actor.zero_grad()
             total_actor_loss.backward()
+            torch.nn.utils.clip_grad_norm_(self.actor.parameters(), max_norm=0.5)
             self.optimizer_actor.step()
             
-            # Update critic
             self.optimizer_critic.zero_grad()
             loss_critic.backward()
+            torch.nn.utils.clip_grad_norm_(self.critic.parameters(), max_norm=0.5)
             self.optimizer_critic.step()
-            
-        # Copy new weights into old policy: theta_k+1 <- theta_k
+
         self.actor_old.load_state_dict(self.actor.state_dict())
-        
-        # Clear memory
         memory.clear_memory()
 
-
 class Memory:
+    # ... (Memory 類別保持不變) ...
     def __init__(self):
         self.actions = []
         self.states = []
@@ -223,292 +227,335 @@ class Memory:
         del self.rewards[:]
         del self.is_terminals[:]
 
-# --- 設定與常數 ---
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-OBS_DIM = 15  # 根據我們最新的 _get_obs()
-ACTION_DIM = 1 # 連續目標X座標
-MAX_EPISODES = 10000
-MAX_TIMESTEPS_PER_EPISODE = 5000 # 每回合最大步數
-UPDATE_TIMESTEPS = 4096  # 每收集這麼多步數後更新一次網路
-SAVE_MODEL_FREQ = 500000 # 每多少步儲存一次模型 (或者按 episode)
-MODEL_DIR = "ppo_models" # 模型儲存目錄
-os.makedirs(MODEL_DIR, exist_ok=True)
-MODEL_NAME_PREFIX = "ppo_pong_strategic_ai"
-
-# PPO 超參數 (可以調整)
-LR_ACTOR = 0.0003
-LR_CRITIC = 0.001
-GAMMA = 0.99           # 折扣因子
-K_EPOCHS = 10          # 每次更新時，用同一批數據訓練的次數
-EPS_CLIP = 0.2         # PPO 裁剪參數
-GAE_LAMBDA = 0.95      # GAE lambda 參數
-ACTION_STD_INIT = 0.5  # 初始動作標準差 (如果 log_std 不是網路輸出)
-HIDDEN_DIM_NETS = 256  # 網路隱藏層大小
-
-
-
-# --- 獎勵函數設計 (專注於積極擊球) ---
-def calculate_reward(current_state, env_info, done, prev_ball_y, current_ball_y, player1_lives, opponent_lives, prev_player1_lives, prev_opponent_lives):
+# --- 獎勵函數設計 (保持不變，依賴 reward_cfg) ---
+def calculate_reward(reward_cfg, current_state, env_info, done, prev_ball_y_obs, current_ball_y_obs, player1_lives, opponent_lives, prev_player1_lives, prev_opponent_lives):
+    # ... (與您最新版本，即步驟 5.1 中提供的 calculate_reward 函數相同) ...
     reward = 0.0
-    # DEBUG_REWARD: 您可以在需要時取消以下行的註解來打印資訊以進行偵錯
-    # print(f"[DEBUG_REWARD_V2] State[0,6,7]: {current_state[0]:.2f}, {current_state[6]:.2f}, {current_state[7]:.2f} | Info: {env_info}, Done: {done}")
+    reward_components = {}
 
-    # 觀察空間索引 (根據 _get_obs() 的定義)
     AI_PADDLE_X_IDX = 0
-    # AI_PADDLE_VX_IDX = 1 # 暫未使用
-    # AI_PADDLE_W_IDX = 2 # 暫未使用
     BALL_X_IDX = 6
-    BALL_Y_IDX = 7 # AI 視角 (0=AI方, 1=玩家方)
-    # BALL_VX_IDX = 8 # 暫未使用
-    # BALL_VY_IDX = 9 # 暫未使用
+    BALL_Y_IDX = 7
 
     ai_paddle_x = current_state[AI_PADDLE_X_IDX]
     ball_x = current_state[BALL_X_IDX]
-    ball_y = current_state[BALL_Y_IDX] # 這個 ball_y 與參數 current_ball_y 應該是相同的 (都是 AI 視角)
+    ball_y_current_ai_obs = current_state[BALL_Y_IDX]
 
-    # --- 核心獎勵 ---
-    # 1. AI 成功擊球獎勵 (主要目標)
-    if env_info.get('ai_hit_ball'):
-        reward += 3.0  # 大幅提高基礎擊球獎勵
-        # print(f"[DEBUG_REWARD_V2] AI hit ball! Base Reward: +10.0")
+    hit_ball_this_step = env_info.get('ai_hit_ball', False)
+    player1_scored_this_step = env_info.get('scorer') == 'player1' or opponent_lives < prev_opponent_lives
+    ai_scored_this_step = env_info.get('scorer') == 'opponent' or player1_lives < prev_player1_lives
 
-        # (可選) 根據擊球後的球X座標給予額外獎勵 (打向邊角)
-        # ball_x_after_ai_hit = env_info.get('ball_x_after_ai_hit')
-        # if ball_x_after_ai_hit is not None:
-        #     if ball_x_after_ai_hit < 0.15 or ball_x_after_ai_hit > 0.85:
-        #         reward += 3.0
-        #     elif ball_x_after_ai_hit < 0.3 or ball_x_after_ai_hit > 0.7:
-        #         reward += 1.5
-    else:
-        # --- 如果沒有擊中球，則根據與球的距離給予引導 ---
-        # a. 獎勵/懲罰 AI 球拍在 X 軸上靠近球
-        #   (距離越近，獎勵越高；距離越遠，懲罰越大)
-        #   我們希望 X 軸距離為 0 時獎勵最高。
-        #   用 (1 - X軸距離) 的形式，距離為0時為1，距離為1時為0。
-        #   乘以一個係數來控制獎勵大小。
+    if hit_ball_this_step:
+        val = reward_cfg.get('hit_ball_reward', 0.0)
+        reward += val
+        reward_components['hit_ball'] = val
+
+    if player1_scored_this_step:
+        val = reward_cfg.get('player_scored_penalty', 0.0)
+        reward += val
+        reward_components['scored_upon'] = val
+    elif ai_scored_this_step:
+        val = reward_cfg.get('ai_scored_reward', 0.0)
+        reward += val
+        reward_components['ai_scored'] = val
+    
+    if not hit_ball_this_step and not player1_scored_this_step and not ai_scored_this_step and not done:
         dist_x = abs(ai_paddle_x - ball_x)
-        reward_align_x = (1.0 - dist_x) * 0.5 # 獎勵值範圍 [0, 0.5]
-        reward += reward_align_x
-        # print(f"[DEBUG_REWARD_V2] Align X reward: {reward_align_x:.2f} (dist_x: {dist_x:.2f})")
+        if reward_cfg.get('enable_x_align_penalty', False):
+            penalty_val = dist_x * reward_cfg.get('x_align_penalty_factor', 0.0)
+            reward -= penalty_val
+            reward_components['penalty_dist_x'] = -penalty_val
+        
+        if reward_cfg.get('enable_y_shaping', False):
+            effective_reach_y = reward_cfg.get('y_paddle_effective_reach', 0.3)
+            prepared_reward_val = reward_cfg.get('y_prepared_to_hit_reward', 0.0)
+            good_dist_x = reward_cfg.get('y_good_dist_x_for_bonus', 0.1)
+            if ball_y_current_ai_obs < effective_reach_y and ball_y_current_ai_obs >= 0:
+                if dist_x < good_dist_x:
+                    reward += prepared_reward_val
+                    reward_components['prepared_to_hit_bonus'] = prepared_reward_val
+        
+        if reward_cfg.get('enable_edge_penalty', False):
+            zone_width = reward_cfg.get('edge_penalty_zone_width', 0.05)
+            penalty_scale = reward_cfg.get('edge_penalty_scale', 0.1)
+            edge_penalty_val = 0.0
+            if ai_paddle_x < zone_width:
+                edge_penalty_val = (zone_width - ai_paddle_x) / zone_width * penalty_scale
+            elif ai_paddle_x > (1.0 - zone_width):
+                edge_penalty_val = (ai_paddle_x - (1.0 - zone_width)) / zone_width * penalty_scale
+            if edge_penalty_val > 0:
+                reward -= edge_penalty_val
+                reward_components['penalty_edge_zone'] = -edge_penalty_val
 
-
-        # b. 獎勵/懲罰 AI 球拍在 Y 軸上處於可擊球區域
-        #    AI 的球拍在 Y=0 這一側。我們希望球的 Y 座標也靠近 0 (AI方)。
-        #    如果球在 AI 這半邊 (ball_y < 0.5)，給予獎勵，越近越好。
-        #    如果球在對手那半邊 (ball_y >= 0.5)，給予懲罰，越遠懲罰越大。
-        #    這個獎勵的目的是讓 AI 移動到 Y 軸上的正確防守/攻擊位置。
-        PADDLE_EFFECTIVE_REACH_Y = 0.3 # AI 球拍能有效擊打的Y軸範圍 (例如球Y < 0.3)
-                                      # 這個值需要根據球拍厚度、球速等因素調整
-        if ball_y < PADDLE_EFFECTIVE_REACH_Y: # 球在AI的可觸及範圍內
-            # 球越靠近AI的底線 (ball_y 越接近0)，獎勵越高
-            reward_near_y = (PADDLE_EFFECTIVE_REACH_Y - ball_y) * 1.0 # 獎勵值範圍約 [0, 0.3]
-            reward += reward_near_y
-            # print(f"[DEBUG_REWARD_V2] Near Y reward: {reward_near_y:.2f} (ball_y: {ball_y:.2f})")
-
-            # (進階) 如果球在可擊打的Y範圍內，且X也對準了，給額外獎勵
-            if dist_x < 0.1: # 球拍X與球X非常接近
-                 reward += 0.5 # 額外的位置準備獎勵
-                 # print(f"[DEBUG_REWARD_V2] Good Positioning Bonus! Reward: +0.5")
-
-        else: # 球離AI的Y軸較遠
-            # 可以選擇不給懲罰，或者給一個溫和的懲罰，避免AI在球遠離時也積極移動過去
-            reward -= (ball_y - PADDLE_EFFECTIVE_REACH_Y) * 0.1 # 溫和懲罰
-            pass
-
-
-    # 2. 基本得分/失分獎勵 (保持，這是最終目標)
-    if env_info.get('scorer') == 'player1': # AI (opponent) 失分
-        reward -= 3.0 # 可以稍微加大失分懲罰，強調防守
-        # print(f"[DEBUG_REWARD_V2] AI lost a point. Penalty: -20.0")
-    elif env_info.get('scorer') == 'opponent': # AI (opponent) 得分
-        reward += 1.0
-        # print(f"[DEBUG_REWARD_V2] AI scored a point! Reward: +20.0")
-    # 以下的 lives 檢查主要用於 done 但 scorer 未明確設定的情況
-    elif opponent_lives < prev_opponent_lives:
-        reward -= 3.0
-    elif player1_lives < prev_player1_lives:
-        reward += 1.0
-
-
-    # 3. 移除之前可能導致問題的「球移動方向獎勵」
-    # (已移除)
-
-    # 4. 微小的「存活懲罰」，鼓勵 AI 積極行動
-    reward -= 0.02 # 每一步都扣除微小的分數 (可以根據情況調整，0.01 ~ 0.05 之間嘗試)
-
-    # print(f"[DEBUG_REWARD_V2] Final reward for step: {reward:.2f}")
-    return reward
+    if reward_cfg.get('enable_time_penalty', False):
+        val = reward_cfg.get('time_penalty_per_step', 0.0)
+        reward += val
+        reward_components['time_penalty'] = val
+    
+    return reward, reward_components
 
 # --- 訓練主函數 ---
-def train():
+def train(config_data):
+    global device, train_config, render_screen, render_clock # 引用全域變數
+    train_config = config_data
+    
+    cfg_general = train_config['general']
+    cfg_model_io = train_config['model_io']
+    cfg_train_loop = train_config['training_loop']
+    cfg_ppo_agent = train_config['ppo_agent']
+    cfg_network = train_config['network']
+    cfg_reward = train_config['reward_function']
+    cfg_logging = train_config['logging']
+    cfg_viz = train_config.get('visualization', {}) # 使用 .get 以處理 visualization 可能不存在的情況
+
     print(f"開始訓練，使用設備: {device}")
-    print(f"觀察空間維度: {OBS_DIM}, 動作空間維度: {ACTION_DIM}")
+    obs_dim = cfg_general['obs_dim']
+    action_dim = cfg_general['action_dim']
+    print(f"觀察空間維度: {obs_dim}, 動作空間維度: {action_dim}")
 
-    # 初始化 Pygame （PongDuelEnv 可能需要）
+    # --- 初始化 Pygame ---
     pygame.init()
-    pygame.display.set_mode((1,1)) # 創建一個虛擬螢幕，避免 "No video mode has been set"
+    # 根據配置決定是否創建渲染視窗
+    if cfg_viz.get('enable_render', False) and cfg_viz.get('render_every_n_episodes', 0) > 0:
+        render_screen_width = cfg_viz.get('render_screen_width', 600)
+        render_screen_height = cfg_viz.get('render_screen_height', 450)
+        render_screen = pygame.display.set_mode((render_screen_width, render_screen_height))
+        pygame.display.set_caption("PPO Training Render")
+        render_clock = pygame.time.Clock()
+        print(f"訓練過程中將啟用渲染，每 {cfg_viz['render_every_n_episodes']} 回合。")
+    else:
+        pygame.display.set_mode((1,1)) # 保持虛擬螢幕用於非渲染模式
+        print("訓練過程中禁用渲染。")
 
-    # 初始化 ConfigManager (PongDuelEnv 初始化時需要)
-    config_manager = ConfigManager()
-    GameSettings._config_manager = config_manager # 關鍵步驟
 
-    # 初始化環境
-    # PongDuelEnv 的初始化需要 player1_config, opponent_config, common_config
-    # 我們訓練的是 AI (opponent)，所以 P1 可以是一個簡單的固定策略對手或也由AI控制 (self-play)
-    # 為了簡化，讓P1使用固定的簡單策略，例如總是嘗試跟隨球的X座標
-    # 或者，我們可以讓 P1 也由一個簡單的 agent 控制，或者在這個訓練腳本中不控制P1的輸入，
-    # 而是讓 P1 的 action 總是 "stay" 或基於簡單規則。
-    # PongDuelEnv.step() 需要 player1_target_x_norm_input
+    game_cfg_manager = GameConfigManager()
+    GameSettings._config_manager = game_cfg_manager
 
-    # 環境配置
-    # 這裡我們選擇 PvA 模式，AI 是 opponent
-    # common_config 可以從一個預設的 level YAML 讀取，或手動定義
-    # 假設使用 Level 1 的設定作為基礎
-    # 確保 'models' 資料夾和 'level1.yaml' 存在，或者提供一個預設的 common_config
-    level1_yaml_path = "models/level1.yaml" # resource_path 會處理
+    level1_yaml_path = "models/level1.yaml"
     common_game_cfg = {}
     if os.path.exists(resource_path(level1_yaml_path)):
-        common_game_cfg = config_manager.get_level_config("level1.yaml")
+        common_game_cfg = game_cfg_manager.get_level_config("level1.yaml")
         if common_game_cfg is None: common_game_cfg = {}
         print(f"使用 Level 1 的 common_config: {common_game_cfg}")
     else:
-        print(f"警告: {level1_yaml_path} 未找到，使用空的 common_config。")
-        # 提供一些基礎預設值，以防 level1.yaml 不存在或內容不全
+        print(f"警告: {level1_yaml_path} 未找到。使用預設 common_config。")
         common_game_cfg.setdefault('initial_speed', 0.02)
-        common_game_cfg.setdefault('initial_angle_deg_range', [-60, 60])
         common_game_cfg.setdefault('player_life', 3)
         common_game_cfg.setdefault('ai_life', 3)
-        common_game_cfg.setdefault('player_paddle_width', 100)
-        common_game_cfg.setdefault('ai_paddle_width', 60)
-
 
     player1_env_config = {
         'initial_x': 0.5,
         'initial_paddle_width': common_game_cfg.get('player_paddle_width', 100),
         'initial_lives': common_game_cfg.get('player_life', 3),
-        'skill_code': None, # 訓練時 P1 無技能
-        'is_ai': False # P1 是人類（或由簡單規則控制）
+        'skill_code': None, 'is_ai': False
     }
-    # AI (opponent) 的設定
     opponent_env_config = {
         'initial_x': 0.5,
         'initial_paddle_width': common_game_cfg.get('ai_paddle_width', 60),
         'initial_lives': common_game_cfg.get('ai_life', 3),
-        'skill_code': None, # 訓練時 AI 無技能
-        'is_ai': True # 表明這是 AI 控制的球拍
+        'skill_code': None, 'is_ai': True
     }
 
+    # --- 修改 Env 初始化以傳遞渲染 surface ---
+    # 注意：PongDuelEnv 的 __init__ 需要能接收 initial_main_screen_surface_for_renderer
+    # 如果 render_screen 為 None (表示不渲染或尚未到渲染回合)，則傳遞 None
+    # 這裡我們不在 Env 初始化時固定 surface，而是在 render 調用時處理
     env = PongDuelEnv(
         game_mode=GameSettings.GameMode.PLAYER_VS_AI,
         player1_config=player1_env_config,
         opponent_config=opponent_env_config,
         common_config=common_game_cfg,
-        render_size=400, # 與遊戲中 GameplayState 初始化 Env 時一致
-        paddle_height_px=10,
-        ball_radius_px=10,
-        initial_main_screen_surface_for_renderer=None # 訓練時不渲染到主螢幕
+        render_size=400, paddle_height_px=10, ball_radius_px=10,
+        initial_main_screen_surface_for_renderer=None # 保持 None，env.render() 自己處理
     )
-    # PongDuelEnv 的 renderer 在訓練時不需要實際的螢幕 surface，
-    # 它會在首次調用 env.render() 時嘗試創建一個（如果我們調用它）。
-    # 為了訓練，我們通常不調用 env.render() 以加速。
 
-    ppo_agent = PPOAgent(OBS_DIM, ACTION_DIM, LR_ACTOR, LR_CRITIC, GAMMA, K_EPOCHS, EPS_CLIP, GAE_LAMBDA, HIDDEN_DIM_NETS)
+    ppo_agent = PPOAgent(
+        state_dim=obs_dim, action_dim=action_dim,
+        ppo_cfg=cfg_ppo_agent, network_cfg=cfg_network
+    )
     memory = Memory()
 
     time_step_counter = 0
     episode_count = 0
     
-    # 載入之前的模型 (如果存在)
-    start_episode = 0
-    checkpoint_path = os.path.join(MODEL_DIR, f"{MODEL_NAME_PREFIX}_latest.pth")
-    if os.path.exists(checkpoint_path):
-        print(f"載入先前儲存的模型: {checkpoint_path}")
-        checkpoint = torch.load(checkpoint_path, map_location=device)
-        ppo_agent.actor_old.load_state_dict(checkpoint['actor_state_dict'])
-        ppo_agent.actor.load_state_dict(checkpoint['actor_state_dict'])
-        ppo_agent.critic.load_state_dict(checkpoint['critic_state_dict'])
-        ppo_agent.optimizer_actor.load_state_dict(checkpoint['optimizer_actor_state_dict'])
-        ppo_agent.optimizer_critic.load_state_dict(checkpoint['optimizer_critic_state_dict'])
-        time_step_counter = checkpoint.get('time_step_counter', 0)
-        start_episode = checkpoint.get('episode_count', 0)
-        print(f"從 episode {start_episode}, time_step {time_step_counter} 繼續訓練。")
+    model_dir = cfg_model_io['model_dir']
+    model_name_prefix = cfg_model_io['model_name_prefix']
+    os.makedirs(model_dir, exist_ok=True)
+
+    if cfg_model_io['load_existing_model']:
+        checkpoint_path = os.path.join(model_dir, f"{model_name_prefix}_latest.pth")
+        if os.path.exists(checkpoint_path):
+            print(f"載入先前儲存的模型: {checkpoint_path}")
+            try:
+                checkpoint = torch.load(checkpoint_path, map_location=device)
+                ppo_agent.actor_old.load_state_dict(checkpoint['actor_state_dict'])
+                ppo_agent.actor.load_state_dict(checkpoint['actor_state_dict'])
+                ppo_agent.critic.load_state_dict(checkpoint['critic_state_dict'])
+                if 'optimizer_actor_state_dict' in checkpoint:
+                    ppo_agent.optimizer_actor.load_state_dict(checkpoint['optimizer_actor_state_dict'])
+                if 'optimizer_critic_state_dict' in checkpoint:
+                    ppo_agent.optimizer_critic.load_state_dict(checkpoint['optimizer_critic_state_dict'])
+                time_step_counter = checkpoint.get('time_step_counter', 0)
+                episode_count = checkpoint.get('episode_count', 0)
+                print(f"從 episode {episode_count}, time_step {time_step_counter} 繼續訓練。")
+            except Exception as e:
+                print(f"載入模型檢查點失敗: {e}。將從頭開始訓練。")
+                time_step_counter = 0; episode_count = 0
+        else:
+            print(f"找不到已儲存的模型 {checkpoint_path}。將從頭開始訓練。")
+    else:
+        print("設定為不載入已儲存的模型，將從頭開始訓練。")
 
     recent_rewards = []
-    # --- 訓練迴圈 ---
-    for i_episode in range(start_episode + 1, MAX_EPISODES + 1):
-        episode_count = i_episode
+    cfg_log_ep_prog = cfg_logging['episode_progress_log']
+    cfg_log_ep_sum = cfg_logging['episode_summary_log']
+    cfg_log_ppo_upd = cfg_logging['ppo_update_log']
+
+    updates_call_counter_for_log = 0 # 用於 ppo_update_log 的計數
+
+    for i_episode in range(episode_count + 1, cfg_train_loop['max_episodes'] + 1):
         state, _ = env.reset() 
         current_ep_reward = 0
         
-        # ⭐️ 確保 ball_y_in_obs_idx 與您的 _get_obs() 匹配 (我們上次確認是7)
-        ball_y_in_obs_idx = 7 # 假設 Ball Y 在觀察向量中的索引是 7
+        ball_y_in_obs_idx = 7
         if state.shape[0] <= ball_y_in_obs_idx:
-            print(f"錯誤：觀察維度 ({state.shape[0]}) 過小，無法獲取索引 {ball_y_in_obs_idx} 的 ball_y。請檢查 OBS_DIM 和 _get_obs()。")
-            return # 或者拋出錯誤
+            print(f"錯誤：觀察維度 ({state.shape[0]}) 過小。")
+            return
 
         prev_ball_y_for_reward = state[ball_y_in_obs_idx] 
-
         prev_p1_lives = env.player1.lives
         prev_opp_lives = env.opponent.lives
+        
+        # --- 判斷本回合是否需要渲染 ---
+        should_render_this_episode = False
+        if cfg_viz.get('enable_render', False) and \
+           cfg_viz.get('render_every_n_episodes', 0) > 0 and \
+           (i_episode == 1 or i_episode % cfg_viz['render_every_n_episodes'] == 0):
+            should_render_this_episode = True
+            if render_screen is None: # 如果還沒有創建渲染視窗 (例如第一次渲染或之前關閉了)
+                render_screen_width = cfg_viz.get('render_screen_width', 600)
+                render_screen_height = cfg_viz.get('render_screen_height', 450)
+                render_screen = pygame.display.set_mode((render_screen_width, render_screen_height))
+                pygame.display.set_caption(f"PPO Training Render - Episode {i_episode}")
+                render_clock = pygame.time.Clock()
+            # 將 render_screen 傳遞給 env 的 renderer
+            if env.renderer:
+                env.renderer.window = render_screen
+            elif hasattr(env, 'provided_main_screen_surface'): # 兼容舊的 Env 初始化方式
+                 env.provided_main_screen_surface = render_screen
 
-        for t in range(MAX_TIMESTEPS_PER_EPISODE):
+
+        frames_rendered_this_episode = 0
+        max_frames_to_render = cfg_viz.get('render_frames_per_episode', 200) if not cfg_viz.get('render_whole_episode', False) else float('inf')
+
+        for t in range(cfg_train_loop['max_timesteps_per_episode']):
             time_step_counter += 1
-            
             action_opponent_continuous, action_log_prob = ppo_agent.select_action(state)
             
-            ball_x_in_obs_idx = 6 # 假設 Ball X 在觀察向量中的索引是 6
-            if state.shape[0] <= ball_x_in_obs_idx:
-                 print(f"錯誤：觀察維度 ({state.shape[0]}) 過小，無法獲取索引 {ball_x_in_obs_idx} 的 ball_x。")
-                 return
+            log_this_timestep_detail = False
+            if cfg_log_ep_prog['enable'] and \
+               cfg_log_ep_prog.get('log_every_n_episodes', 0) > 0 and \
+               i_episode % cfg_log_ep_prog['log_every_n_episodes'] == 0:
+                if cfg_log_ep_prog.get('log_at_timestep_interval', 0) > 0 and \
+                   t % cfg_log_ep_prog['log_at_timestep_interval'] == 0:
+                    log_this_timestep_detail = True
+            
+            if log_this_timestep_detail:
+                with torch.no_grad():
+                    current_state_tensor = torch.FloatTensor(state.reshape(1, -1)).to(device)
+                    raw_mean, raw_log_std = ppo_agent.actor_old(current_state_tensor) # 使用 actor_old
+                print(f"EPISODE_PROGRESS_LOG --- Episode: {i_episode}, Timestep: {t} (Total: {time_step_counter}) ---")
+                if cfg_log_ep_prog.get('print_full_state_vector', False):
+                    state_str = str(state)
+                else:
+                    state_str = f"OppX:{state[0]:.2f} BallX:{state[6]:.2f} BallY:{state[7]:.2f} RelBallOppX:{state[11]:.2f}"
+                print(f"  State: {state_str}")
+                print(f"  PPO Raw Output | Mean (actor_old): {raw_mean.item():.4f}, LogStd (actor_old): {raw_log_std.item():.4f}")
+                print(f"  PPO Action   | LogProb: {action_log_prob.item():.4f}, Final Target X: {action_opponent_continuous[0]:.4f}")
+
+            ball_x_in_obs_idx = 6
             ball_x_in_obs = state[ball_x_in_obs_idx]
             action_player1_target_x = np.clip(ball_x_in_obs, 0.0, 1.0)
 
             next_state, _, round_done, game_over, info = env.step(action_player1_target_x, action_opponent_continuous[0])
 
-            # 注意：我們傳入的是 AI 採取行動前的狀態 `state`，因為獎勵是基於這個狀態下的行動導致的結果 next_state 和 info
-            reward = calculate_reward(state, # <--- 新增的參數
-                                      info, (round_done or game_over),
-                                      prev_ball_y_for_reward, next_state[ball_y_in_obs_idx],
-                                      env.player1.lives, env.opponent.lives,
-                                      prev_p1_lives, prev_opp_lives)
-            current_ep_reward += reward
-            # ... (省略部分程式碼) ...
+            reward_val, reward_components_dict = calculate_reward(
+                cfg_reward, state, info, (round_done or game_over),
+                prev_ball_y_for_reward, next_state[ball_y_in_obs_idx],
+                env.player1.lives, env.opponent.lives,
+                prev_p1_lives, prev_opp_lives
+            )
+            current_ep_reward += reward_val
+            
+            if log_this_timestep_detail:
+                if cfg_log_ep_prog.get('print_reward_components', False) and reward_components_dict:
+                    print(f"  Reward Detail  | Total: {reward_val:.4f}")
+                    for r_key, r_val_comp in reward_components_dict.items():
+                        print(f"    {r_key}: {r_val_comp:.4f}")
+                    if info: print(f"  Env Info: {info}")
+                print(f"--------------------------------------------------------------------")
 
             memory.states.append(torch.FloatTensor(state).to(device))
             memory.actions.append(torch.FloatTensor(action_opponent_continuous).to(device))
             memory.log_probs.append(action_log_prob)
-            memory.rewards.append(reward)
+            memory.rewards.append(reward_val)
             memory.is_terminals.append(round_done or game_over)
 
-            if time_step_counter % UPDATE_TIMESTEPS == 0:
-                # print(f"  總步數 {time_step_counter}: 更新 PPO 網路...") # 保留這個，比較重要
-                ppo_agent.update(memory)
+            if time_step_counter % cfg_train_loop['update_timesteps'] == 0 and len(memory.states) > 0:
+                updates_call_counter_for_log +=1 # 在 PPOAgent 實例之外管理 update 計數
+                # 將 update_call_count 傳遞給 ppo_agent.update，或者在 ppo_agent 內部管理
+                # 這裡我們簡化，假設 PPOAgent 內部自己處理了 update_call_count 的更新
+                if cfg_log_ppo_upd['enable']:
+                     print(f"  總步數 {time_step_counter}: 更新 PPO 網路 (第 {updates_call_counter_for_log} 次)...")
+                ppo_agent.update(memory, cfg_log_ppo_upd) 
             
             prev_ball_y_for_reward = next_state[ball_y_in_obs_idx]
             prev_p1_lives = env.player1.lives
             prev_opp_lives = env.opponent.lives
             state = next_state
             
-            if game_over: # 只有在遊戲真正結束時才跳出內層迴圈
-                break 
-        print_every = 50
-        # 累計最近獎勵
-        recent_rewards.append(current_ep_reward)
-        if len(recent_rewards) > print_every: # 只保留最近10個
-            recent_rewards.pop(0)
+            # --- 執行渲染 ---
+            if should_render_this_episode and frames_rendered_this_episode < max_frames_to_render:
+                if render_screen: # 確保視窗存在
+                    for event in pygame.event.get(): # 處理關閉視窗等事件
+                        if event.type == pygame.QUIT:
+                            print("用戶在渲染過程中關閉視窗，停止訓練。")
+                            env.close()
+                            pygame.quit()
+                            return
+                    # 確保 env 的 renderer 使用的是我們創建的 render_screen
+                    if env.renderer:
+                        env.renderer.window = render_screen
+                    else: # 如果 env.renderer 還未初始化 (例如第一次調用 env.render)
+                          # PongDuelEnv 的 render 方法會嘗試初始化 Renderer
+                          # 我們需要確保它使用正確的 surface
+                        env.provided_main_screen_surface = render_screen
 
-        # 每 10 個回合打印一次該回合的獎勵和最近10回合的平均獎勵
-        if i_episode % print_every == 0:
-            avg_reward_last_10 = np.mean(recent_rewards) if recent_rewards else 0.0
-            print(f"回合: {i_episode}, 總步數: {time_step_counter}, 本回合獎勵: {current_ep_reward:.2f}, 最近10回平均獎勵: {avg_reward_last_10:.2f}")
+                    env.render() # PongDuelEnv.render() 內部會調用 Renderer.render()
+                    render_clock.tick(cfg_viz.get('render_fps', 30))
+                    frames_rendered_this_episode += 1
+                else: # 如果視窗被關閉了，就不要再嘗試渲染這個回合了
+                    should_render_this_episode = False
 
-        # 定期儲存模型 (保持不變)
-        if i_episode % (SAVE_MODEL_FREQ // MAX_TIMESTEPS_PER_EPISODE if MAX_TIMESTEPS_PER_EPISODE > 0 else SAVE_MODEL_FREQ) == 0 or i_episode == MAX_EPISODES:
-            # ... (儲存模型的邏輯不變) ...
-            path = os.path.join(MODEL_DIR, f"{MODEL_NAME_PREFIX}_episode_{i_episode}.pth")
-            latest_path = os.path.join(MODEL_DIR, f"{MODEL_NAME_PREFIX}_latest.pth")
-            
-            print(f"儲存模型到 {path}") # 保留儲存模型的打印
+
+            if game_over:
+                break
+        
+        if cfg_log_ep_sum['enable'] and \
+           cfg_log_ep_sum.get('log_every_n_episodes', 0) > 0 and \
+           i_episode % cfg_log_ep_sum['log_every_n_episodes'] == 0:
+            recent_rewards.append(current_ep_reward)
+            window_size = cfg_log_ep_sum.get('recent_rewards_window_size', 50)
+            if len(recent_rewards) > window_size:
+                 recent_rewards.pop(0)
+            avg_reward_recent = np.mean(recent_rewards) if recent_rewards else 0.0
+            print(f"EPISODE_SUMMARY --- 回合: {i_episode}, 總步數: {time_step_counter}, 本回合獎勵: {current_ep_reward:.2f}, 最近 {len(recent_rewards)} 回平均獎勵: {avg_reward_recent:.2f}")
+
+        if cfg_model_io['save_model_every_n_episodes'] > 0 and \
+           (i_episode % cfg_model_io['save_model_every_n_episodes'] == 0 or i_episode == cfg_train_loop['max_episodes']):
+            path = os.path.join(model_dir, f"{model_name_prefix}_episode_{i_episode}.pth")
+            latest_path = os.path.join(model_dir, f"{model_name_prefix}_latest.pth")
+            print(f"儲存模型到 {path}")
             torch.save({
                 'episode_count': i_episode,
                 'time_step_counter': time_step_counter,
@@ -516,28 +563,57 @@ def train():
                 'critic_state_dict': ppo_agent.critic.state_dict(),
                 'optimizer_actor_state_dict': ppo_agent.optimizer_actor.state_dict(),
                 'optimizer_critic_state_dict': ppo_agent.optimizer_critic.state_dict(),
+                'train_config_snapshot': train_config # 保存當時的訓練配置快照
             }, path)
-            torch.save({ # 也更新 latest
+            # ... (保存 latest 模型的邏輯類似)
+            torch.save({
                 'episode_count': i_episode,
                 'time_step_counter': time_step_counter,
                 'actor_state_dict': ppo_agent.actor.state_dict(),
                 'critic_state_dict': ppo_agent.critic.state_dict(),
                 'optimizer_actor_state_dict': ppo_agent.optimizer_actor.state_dict(),
                 'optimizer_critic_state_dict': ppo_agent.optimizer_critic.state_dict(),
+                'train_config_snapshot': train_config
             }, latest_path)
 
 
     print("訓練完成。")
-    env.close()
-    pygame.quit()
+    if env: env.close()
+    pygame.quit() # 確保 Pygame 被正確關閉
 
+def main():
+    global device, train_config, render_screen, render_clock # 宣告全域變數
+
+    parser = argparse.ArgumentParser(description="PPO Pong Agent Configurable Training Script")
+    parser.add_argument(
+        "--config", type=str, default="config/train_config.yaml",
+        help="Path to the training configuration YAML file."
+    )
+    args = parser.parse_args()
+
+    config_data = load_config_from_yaml(args.config)
+    if config_data is None: return
+
+    # 設定設備
+    cfg_general_device = config_data.get('general', {}).get('device', 'auto')
+    if cfg_general_device == "auto":
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    elif cfg_general_device == "cuda" and torch.cuda.is_available():
+        device = torch.device("cuda")
+    else:
+        device = torch.device("cpu")
+
+    # 設定隨機種子
+    seed_val = config_data.get('general', {}).get('seed', None)
+    if seed_val is not None:
+        torch.manual_seed(seed_val)
+        np.random.seed(seed_val)
+        random.seed(seed_val)
+        if device.type == 'cuda':
+            torch.cuda.manual_seed_all(seed_val)
+        print(f"已設定隨機種子: {seed_val}")
+    
+    train(config_data)
 
 if __name__ == '__main__':
-    # 為了讓 utils.resource_path 能正確工作，可能需要確保當前工作目錄是專案根目錄
-    # 或者在 utils.py 中處理好相對路徑的解析
-    # 通常，如果 train_ppo_agent.py 在專案根目錄下執行，resource_path(".") 會是根目錄
-    
-    # 設置Pygame環境變數以在無頭伺服器上運行（如果需要）
-    # os.environ["SDL_VIDEODRIVER"] = "dummy"
-    
-    train()
+    main()
