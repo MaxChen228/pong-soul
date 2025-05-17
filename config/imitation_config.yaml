@@ -1,0 +1,10 @@
+# config/imitation_config.yaml
+
+data_generation:
+  num_episodes: 500                # 生成數據的回合數，越多越好，但耗時
+  max_timesteps_per_episode: 5000  # 每回合最大步數
+
+training:
+  epochs: 300                       # 模仿學習的訓練輪數 (epochs)
+  batch_size: 256                  # 每個批次的樣本數
+  lr: 0.0007                       # 模仿學習的學習率 (可以嘗試 0.0001 到 0.001)

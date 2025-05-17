@@ -10,104 +10,94 @@ general:
 # --- 模型儲存與載入 (Model Saving & Loading) ---
 model_io:
   model_dir: "ppo_models"
-  model_name_prefix: "ppo_pong_configurable_ai_v2" # 建議使用新的前綴以區分不同配置的訓練
-  load_existing_model: false # 從頭開始訓練以測試新配置
+  model_name_prefix: "ppo_pong" # 建議使用新的前綴
   save_model_every_n_episodes: 200
+  
+  # --- PPO 完整檢查點加載 ---
+  load_existing_model: false # 是否加載先前保存的完整 PPO 檢查點 (Actor, Critic, Optimizers)
+  
+  # --- 新增：模仿學習 (IL) 預訓練 Actor 加載 ---
+  load_il_actor_model: true               # <<-- 設為 true 以啟用從 IL 加載 Actor
+  il_actor_model_path: "ppo_models/il_actor_pretrained.pth" # <<-- 指向你的 IL 預訓練 Actor 模型
+                                         #      例如 "ppo_models/my_il_actor.pth" (如果用了不同名稱)
 
 # --- PPO 訓練主要參數 (Main Training Loop Parameters) ---
 training_loop:
   max_episodes: 10000 # 或根據需要增加
-  max_timesteps_per_episode: 100000
+  max_timesteps_per_episode: 100000 # 如果回合很快結束，可以減小
   update_timesteps: 4096 # 可以考慮增加到 8192，如果計算資源允許
 
 # --- PPO 代理參數 (PPO Agent Parameters) ---
 ppo_agent:
-  lr_actor: 0.0003       # 初始學習率，如果策略仍不穩定或收斂過快到次優解，後續可考慮降低
-  lr_critic: 0.001       # 同上
+  lr_actor: 0.0003       # 初始學習率，fine-tuning 時可以考慮降低 (例如 0.0001)
+  lr_critic: 0.001
   gamma: 0.99
   k_epochs: 10
   eps_clip: 0.2
   gae_lambda: 0.95
-  entropy_coefficient: 0.1 # !!! 顯著提高以強制探索 !!! (原為 0.02)
+  entropy_coefficient: 0.05 # 從 IL 開始，可以稍微降低初始熵，但仍需探索 (原為 0.1 或 0.02)
 
 # --- 網路參數 (Network Parameters) ---
+# 確保這與模仿學習時 Actor 的網路結構一致
 network:
   actor_hidden_dim: 256
   critic_hidden_dim: 256
-  log_std_min: -3         # !!! 略微提高，防止std完全崩潰 !!! (原為 -5)
-  log_std_max: 0.0        # 保持，允許std最大到1.0
-  init_log_std_bias: -0.1   # !!! 調整以獲得較大的初始std (約0.9) !!! (原為 -0.5)
-  init_log_std_weights_uniform_abs_limit: 0.001 # 保持
+  log_std_min: -3
+  log_std_max: 0.0
+  init_log_std_bias: -0.1
+  init_log_std_weights_uniform_abs_limit: 0.001
 
 # --- 獎勵函數配置 (Reward Function Configuration) ---
+# 這裡的獎勵函數應該與你希望 RL fine-tuning 時使用的獎勵一致
 reward_function:
-  # --- 核心目標獎勵與懲罰 ---
-  hit_ball_reward: 15.0            # 提高成功擊球的獎勵
-  ai_scored_reward: 7.0            # AI 得分的獎勵 (使其比失分懲罰的絕對值略高)
-  player_scored_penalty: -5.0      # AI 被得分的懲罰 (保持清晰的負反饋)
-
-  # --- X 軸對齊引導 (暫時完全移除，讓AI先專注擊球和得分) ---
-  enable_x_align_reward: false     # 禁用
-  x_align_reward_factor: 0.0       # 因子設為0
-
-  # --- Y 軸接近與準備擊球獎勵 (暫時完全移除) ---
-  enable_y_proximity_reward: false # 禁用
+  hit_ball_reward: 15.0
+  ai_scored_reward: 7.0
+  player_scored_penalty: -5.0
+  enable_x_align_reward: false
+  x_align_reward_factor: 0.0
+  enable_y_proximity_reward: false
   y_ball_approach_reward_factor: 0.0
-  y_paddle_effective_reach_for_reward: 0.35 # 即使禁用，保留一個參考值
-
-  # --- 最小化球拍移動懲罰 (保持禁用) ---
+  y_paddle_effective_reach_for_reward: 0.35
   enable_paddle_movement_penalty: false
   paddle_movement_penalty_factor: 0.0
-
-  # --- 生存獎勵 (取代時間懲罰) ---
-  enable_survival_reward: true        # 啟用生存獎勵
-  survival_reward_per_step: 0.002     # 每多存活一步的微小正獎勵 (原為 time_penalty_per_step: 0 或負值)
-  
-  # --- 明確禁用或將因子設為0的舊獎勵項 ---
-  enable_x_align_penalty: false       # 舊的X軸懲罰方式，禁用
+  enable_survival_reward: true
+  survival_reward_per_step: 0.002
+  enable_x_align_penalty: false
   x_align_penalty_factor: 0
-
   enable_y_shaping: false
   y_paddle_effective_reach: 0
   y_prepared_to_hit_reward: 0
   y_good_dist_x_for_bonus: 0
-
   enable_edge_penalty: false
   edge_penalty_zone_width: 0
   edge_penalty_scale: 0
-
-  enable_time_penalty: false          # 禁用舊的時間懲罰，改用生存獎勵
+  enable_time_penalty: false
   time_penalty_per_step: 0
 
-
-
-
-# --- 日誌打印配置 (Logging Configuration) - 保持不變或按需調整 ---
+# --- 日誌打印配置 (Logging Configuration) ---
 logging:
   episode_progress_log:
     enable: true
-    log_every_n_episodes: 200
-    log_at_timestep_interval: 500 # 可以設為與 max_timesteps_per_episode 接近的值，以便在回合快結束時打印
+    log_every_n_episodes: 100 # 可以更頻繁地記錄進度
+    log_at_timestep_interval: 5000 # 或根據 max_timesteps_per_episode 調整
     print_full_state_vector: false
     print_reward_components: true
-
   ppo_update_log:
     enable: false # PPO Update 日誌通常很長，初期可以禁用
-    log_every_n_updates: 1
+    log_every_n_updates: 10 # 如果啟用，不需要每次都打印
     log_at_k_epoch_num: 1
     print_full_state_vector_for_sample: false
-
   episode_summary_log:
     enable: true
-    log_every_n_episodes: 20 # 頻繁打印總結以觀察趨勢
+    log_every_n_episodes: 10 # 更頻繁打印總結以觀察趨勢
     recent_rewards_window_size: 50
 
-# --- 視覺化配置 (Visualization Configuration) - 建議在調試時啟用並較頻繁渲染 ---
+# --- 視覺化配置 (Visualization Configuration) ---
 visualization:
   enable_render: true
-  render_every_n_episodes: 5 # !!! 建議設為較小值 (例如 1 或 5) 以便頻繁觀察AI行為 !!!
+  render_every_n_episodes: 1 # 觀察 fine-tuning 初期的行為
   render_whole_episode: false
-  render_frames_per_episode: 2000
+  render_frames_per_episode: 3000 # 如果回合長，可以增加
   render_fps: 60
   render_screen_width: 600
   render_screen_height: 450
