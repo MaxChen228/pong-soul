@@ -17,7 +17,7 @@ model_io:
 # --- PPO 訓練主要參數 (Main Training Loop Parameters) ---
 training_loop:
   max_episodes: 10000
-  max_timesteps_per_episode: 3000
+  max_timesteps_per_episode: 100000
   update_timesteps: 4096 # 每收集這麼多步數後更新一次網路 (這個仍然是基於步數的PPO核心機制)
 
 ppo_agent:
@@ -47,25 +47,25 @@ network:
 reward_function:
   # --- 核心目標獎勵與懲罰 ---
   hit_ball_reward: 10.0            # !!! 大幅提高成功擊球的獎勵 !!!
-  ai_scored_reward: 20.0           # AI 得分的獎勵設為最高
-  player_scored_penalty: -10.0     # AI 被得分的懲罰
+  ai_scored_reward: 3.0           # AI 得分的獎勵設為最高
+  player_scored_penalty: -3.0     # AI 被得分的懲罰
 
   # --- 引導性塑形獎勵/懲罰 (極簡化) ---
   # X 軸對齊 (如果沒有擊球，則懲罰與球的距離)
   enable_x_align_penalty: true
-  x_align_penalty_factor: 0.2      # !!! 大幅減小X軸距離懲罰的力度 !!!
+  x_align_penalty_factor: 0      # !!! 大幅減小X軸距離懲罰的力度 !!!
                                    # 目的是只提供非常微弱的引導，避免其主導
 
   # Y 軸位置與準備擊球獎勵 (暫時禁用或設得非常小，讓AI先學會X軸追球和擊球)
   enable_y_shaping: false # true
-  y_paddle_effective_reach: 0.30
-  y_prepared_to_hit_reward: 0.1  # !!! 設得非常小或禁用 !!!
-  y_good_dist_x_for_bonus: 0.10
+  y_paddle_effective_reach: 0
+  y_prepared_to_hit_reward: 0  # !!! 設得非常小或禁用 !!!
+  y_good_dist_x_for_bonus: 0
 
   # 邊緣懲罰 (可以保留，但強度也可以考慮降低)
   enable_edge_penalty: true
-  edge_penalty_zone_width: 0.05
-  edge_penalty_scale: 0.5        # !!! 降低邊緣懲罰強度 !!!
+  edge_penalty_zone_width: 0
+  edge_penalty_scale: 0        # !!! 降低邊緣懲罰強度 !!!
 
   # 時間懲罰 (保持非常微小或禁用)
   enable_time_penalty: true
@@ -104,10 +104,10 @@ logging:
 
 visualization:
   enable_render: true                # 是否啟用訓練過程中的渲染
-  render_every_n_episodes: 20       # 每 N 個回合渲染一次 (設為 0 表示不按回合渲染)
+  render_every_n_episodes: 10       # 每 N 個回合渲染一次 (設為 0 表示不按回合渲染)
                                      # 如果啟用了渲染，至少會在第一個回合後渲染一次（如果 N > 0）
   render_whole_episode: false        # 是否渲染整個回合 (true)，或者只渲染幾幀 (false)
-  render_frames_per_episode: 200     # 如果 render_whole_episode 為 false，則渲染該回合的前 N 幀
+  render_frames_per_episode: 2000     # 如果 render_whole_episode 為 false，則渲染該回合的前 N 幀
   render_fps: 60                     # 渲染時的目標 FPS
   render_screen_width: 600           # 渲染視窗寬度
   render_screen_height: 450          # 渲染視窗高度
