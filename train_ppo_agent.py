@@ -227,71 +227,106 @@ class Memory:
         del self.rewards[:]
         del self.is_terminals[:]
 
-# --- 獎勵函數設計 (保持不變，依賴 reward_cfg) ---
+# --- 獎勵函數設計 (根據新的 reward_cfg 進行修改) ---
 def calculate_reward(reward_cfg, current_state, env_info, done, prev_ball_y_obs, current_ball_y_obs, player1_lives, opponent_lives, prev_player1_lives, prev_opponent_lives):
-    # ... (與您最新版本，即步驟 5.1 中提供的 calculate_reward 函數相同) ...
     reward = 0.0
     reward_components = {}
 
-    AI_PADDLE_X_IDX = 0
-    BALL_X_IDX = 6
-    BALL_Y_IDX = 7
+    # 狀態向量索引 (僅為示例，實際索引應與 _get_obs() 一致)
+    # AI_PADDLE_X_IDX = 0
+    # BALL_X_IDX = 6
+    # BALL_Y_IDX = 7
+    # BALL_VY_IDX = 9
 
-    ai_paddle_x = current_state[AI_PADDLE_X_IDX]
-    ball_x = current_state[BALL_X_IDX]
-    ball_y_current_ai_obs = current_state[BALL_Y_IDX]
+    # ai_paddle_x = current_state[AI_PADDLE_X_IDX] # 如果需要用於其他獎勵，則取消註釋
+    # ball_x = current_state[BALL_X_IDX]           # 同上
 
+    # 事件標誌
     hit_ball_this_step = env_info.get('ai_hit_ball', False)
     player1_scored_this_step = env_info.get('scorer') == 'player1' or opponent_lives < prev_opponent_lives
     ai_scored_this_step = env_info.get('scorer') == 'opponent' or player1_lives < prev_player1_lives
 
+    # 1. 核心獎勵與懲罰
     if hit_ball_this_step:
         val = reward_cfg.get('hit_ball_reward', 0.0)
         reward += val
         reward_components['hit_ball'] = val
 
-    if player1_scored_this_step:
+    if player1_scored_this_step: # AI 被得分
         val = reward_cfg.get('player_scored_penalty', 0.0)
         reward += val
         reward_components['scored_upon'] = val
-    elif ai_scored_this_step:
+    elif ai_scored_this_step: # AI 得分
         val = reward_cfg.get('ai_scored_reward', 0.0)
         reward += val
         reward_components['ai_scored'] = val
-    
-    if not hit_ball_this_step and not player1_scored_this_step and not ai_scored_this_step and not done:
-        dist_x = abs(ai_paddle_x - ball_x)
-        if reward_cfg.get('enable_x_align_penalty', False):
-            penalty_val = dist_x * reward_cfg.get('x_align_penalty_factor', 0.0)
-            reward -= penalty_val
-            reward_components['penalty_dist_x'] = -penalty_val
-        
-        if reward_cfg.get('enable_y_shaping', False):
-            effective_reach_y = reward_cfg.get('y_paddle_effective_reach', 0.3)
-            prepared_reward_val = reward_cfg.get('y_prepared_to_hit_reward', 0.0)
-            good_dist_x = reward_cfg.get('y_good_dist_x_for_bonus', 0.1)
-            if ball_y_current_ai_obs < effective_reach_y and ball_y_current_ai_obs >= 0:
-                if dist_x < good_dist_x:
-                    reward += prepared_reward_val
-                    reward_components['prepared_to_hit_bonus'] = prepared_reward_val
-        
-        if reward_cfg.get('enable_edge_penalty', False):
-            zone_width = reward_cfg.get('edge_penalty_zone_width', 0.05)
-            penalty_scale = reward_cfg.get('edge_penalty_scale', 0.1)
-            edge_penalty_val = 0.0
-            if ai_paddle_x < zone_width:
-                edge_penalty_val = (zone_width - ai_paddle_x) / zone_width * penalty_scale
-            elif ai_paddle_x > (1.0 - zone_width):
-                edge_penalty_val = (ai_paddle_x - (1.0 - zone_width)) / zone_width * penalty_scale
-            if edge_penalty_val > 0:
-                reward -= edge_penalty_val
-                reward_components['penalty_edge_zone'] = -edge_penalty_val
 
-    if reward_cfg.get('enable_time_penalty', False):
-        val = reward_cfg.get('time_penalty_per_step', 0.0)
-        reward += val
-        reward_components['time_penalty'] = val
-    
+    # 2. 引導性獎勵/懲罰 (大部分已在 config 中禁用)
+    if not hit_ball_this_step and not player1_scored_this_step and not ai_scored_this_step and not done:
+        
+        # a. 新的 X 軸對齊獎勵 (已在 config 中禁用: enable_x_align_reward: false)
+        if reward_cfg.get('enable_x_align_reward', False):
+            # dist_x = abs(current_state[AI_PADDLE_X_IDX] - current_state[BALL_X_IDX])
+            # ball_y_ai_perspective = current_state[BALL_Y_IDX]
+            # ball_vy_from_obs = current_state[BALL_VY_IDX]
+            # ball_is_in_ai_half = ball_y_ai_perspective < 0.5
+            # ball_is_moving_towards_ai = ball_vy_from_obs < -1e-3
+            # if ball_is_moving_towards_ai or ball_is_in_ai_half:
+            #     align_reward = (1.0 - dist_x) * reward_cfg.get('x_align_reward_factor', 0.0)
+            #     reward += align_reward
+            #     reward_components['x_align_reward'] = align_reward
+            pass # 邏輯已禁用
+
+        # b. 新的 Y 軸接近與準備擊球獎勵 (已在 config 中禁用: enable_y_proximity_reward: false)
+        if reward_cfg.get('enable_y_proximity_reward', False):
+            # effective_reach_y = reward_cfg.get('y_paddle_effective_reach_for_reward', 0.35)
+            # ball_y_ai_perspective = current_state[BALL_Y_IDX]
+            # ball_vy_from_obs = current_state[BALL_VY_IDX]
+            # ball_is_moving_towards_ai = ball_vy_from_obs < -1e-3
+            # if ball_is_moving_towards_ai and ball_y_ai_perspective < effective_reach_y:
+            #     proximity_reward = (effective_reach_y - ball_y_ai_perspective) * reward_cfg.get('y_ball_approach_reward_factor', 0.0)
+            #     reward += proximity_reward
+            #     reward_components['y_proximity_reward'] = proximity_reward
+            pass # 邏輯已禁用
+
+        # c. 最小化球拍移動懲罰 (已在 config 中禁用: enable_paddle_movement_penalty: false)
+        if reward_cfg.get('enable_paddle_movement_penalty', False):
+            # 需要 prev_ai_paddle_x 資訊
+            pass # 邏輯已禁用
+
+        # d. 原有的 X 軸對齊懲罰 (已在 config 中禁用: enable_x_align_penalty: false (舊的key))
+        #    注意：新的配置文件中，舊的 `enable_x_align_penalty` 也被設為 false。
+        #    為避免混淆，最好確保舊的 key 不會被意外觸發。
+        #    如果您的配置文件中還存在舊的 `enable_x_align_penalty` 鍵並可能為true，則需要明確處理。
+        #    假設新的配置文件已正確禁用它。
+        if reward_cfg.get('enable_x_align_penalty', False) and reward_cfg.get('x_align_penalty_factor', 0.0) != 0: # 確保因子也不為0
+            # dist_x = abs(current_state[AI_PADDLE_X_IDX] - current_state[BALL_X_IDX])
+            # penalty_val = dist_x * reward_cfg.get('x_align_penalty_factor', 0.0)
+            # reward -= penalty_val
+            # reward_components['old_penalty_dist_x'] = -penalty_val
+            pass # 邏輯已禁用
+
+        # e. 原有的 Y 軸塑形獎勵 (已在 config 中禁用: enable_y_shaping: false)
+        if reward_cfg.get('enable_y_shaping', False):
+            pass # 邏輯已禁用
+
+        # f. 原有的邊緣懲罰 (已在 config 中禁用: enable_edge_penalty: false)
+        if reward_cfg.get('enable_edge_penalty', False):
+            pass # 邏輯已禁用
+
+    # 3. 生存獎勵 (取代時間懲罰)
+    if reward_cfg.get('enable_survival_reward', False):
+        val = reward_cfg.get('survival_reward_per_step', 0.0) # 例如 0.002
+        # 僅在回合未結束且AI未失分時給予生存獎勵，避免AI因失分而獲得“最後一步”的生存獎勵
+        if not done and not player1_scored_this_step: # 如果AI剛被得分，則不應獎勵其“生存”到被得分的那一刻
+            reward += val
+            reward_components['survival_reward'] = val
+    # --- 舊的時間懲罰邏輯 (已被生存獎勵替代，並在config中禁用) ---
+    # if reward_cfg.get('enable_time_penalty', False):
+    #     val = reward_cfg.get('time_penalty_per_step', 0.0)
+    #     reward += val
+    #     reward_components['time_penalty'] = val
+
     return reward, reward_components
 
 # --- 訓練主函數 ---
