@@ -42,6 +42,15 @@ class PurgatoryDomainSkill(Skill):
         self.sound_ball_event = self._load_sound(cfg.get("sound_ball_event"))
         self.sound_deactivate = self._load_sound(cfg.get("sound_deactivate"))
         self.domain_loop_channel = None
+        self.pixel_flame_config = cfg.get("pixel_flame_effect", {})
+        self.flame_particles_enabled = self.pixel_flame_config.get("enabled", False)
+        self.flame_particles = [] # 用於存儲粒子對象或字典的列表
+        self.last_particle_emission_time = 0 # <<< 新增：用於控制粒子發射頻率
+
+        if DEBUG_PURGATORY_SKILL and self.flame_particles_enabled:
+            print(f"[SKILL_DEBUG][{self.__class__.__name__}] ({self.owner.identifier}) Pixel Flame Effect enabled with config: {self.pixel_flame_config}")
+        
+        self.active = False
 
         self.active = False
         self.activated_time = 0
@@ -50,6 +59,73 @@ class PurgatoryDomainSkill(Skill):
         if DEBUG_PURGATORY_SKILL:
             print(f"[SKILL_DEBUG][{self.__class__.__name__}] ({self.owner.identifier}) Initialized. Duration: {self.duration_ms}ms, Cooldown: {self.cooldown_ms}ms")
 
+    def _create_flame_particle(self):
+        """創建一個新的火焰粒子並返回其屬性字典。"""
+        if not self.flame_particles_enabled:
+            return None
+
+        # 從環境中獲取當前球的位置和速度 (正規化座標)
+        # 確保 self.env.ball_x, self.env.ball_y, self.env.ball_vx, self.env.ball_vy 是最新的
+        # 這些值通常在 PongDuelEnv.step 的物理更新之後才是最新的
+        # 粒子生成應該基於球的當前幀位置
+        ball_x_norm = self.env.ball_x
+        ball_y_norm = self.env.ball_y
+        ball_vx_norm = self.env.ball_vx
+        ball_vy_norm = self.env.ball_vy
+
+        # 從配置讀取粒子參數
+        base_size_px = self.pixel_flame_config.get("particle_base_size_px", 3)
+        lifetime_ms = self.pixel_flame_config.get("particle_lifetime_ms", 500)
+        color_start = self.pixel_flame_config.get("color_start_rgba", [255, 200, 0, 220])
+        
+        # 粒子初始位置略微偏離球心，更像從球體表面發出
+        # 這裡的 self.env.ball_radius_normalized 是指標準球的碰撞半徑
+        # 火焰粒子可以從這個半徑附近發出
+        angle_offset = random.uniform(0, 2 * math.pi)
+        pos_offset_factor = self.env.ball_radius_normalized * random.uniform(0.5, 1.0)
+        particle_x = ball_x_norm + pos_offset_factor * math.cos(angle_offset)
+        particle_y = ball_y_norm + pos_offset_factor * math.sin(angle_offset)
+
+        # 粒子初始速度：大致與球運動方向相反，並帶有擴散
+        # 計算球速度的反方向
+        ball_speed_magnitude = math.sqrt(ball_vx_norm**2 + ball_vy_norm**2)
+        if ball_speed_magnitude > 1e-6: # 避免除以零
+            base_vx = -ball_vx_norm / ball_speed_magnitude
+            base_vy = -ball_vy_norm / ball_speed_magnitude
+        else: # 球靜止時，隨機一個基礎方向
+            random_base_angle = random.uniform(0, 2 * math.pi)
+            base_vx = math.cos(random_base_angle)
+            base_vy = math.sin(random_base_angle)
+
+        # 粒子發射速度大小
+        emission_speed_min = self.pixel_flame_config.get("emission_speed_min_factor", 0.005)
+        emission_speed_max = self.pixel_flame_config.get("emission_speed_max_factor", 0.015)
+        particle_speed_magnitude = random.uniform(emission_speed_min, emission_speed_max)
+
+        # 擴散角度
+        spread_angle_rad = math.radians(self.pixel_flame_config.get("spread_angle_deg", 45))
+        angle_perturbation = random.uniform(-spread_angle_rad, spread_angle_rad)
+        
+        # 將基礎速度向量旋轉一個擾動角度
+        final_vx = base_vx * math.cos(angle_perturbation) - base_vy * math.sin(angle_perturbation)
+        final_vy = base_vx * math.sin(angle_perturbation) + base_vy * math.cos(angle_perturbation)
+        
+        # 應用粒子速度大小
+        final_vx *= particle_speed_magnitude
+        final_vy *= particle_speed_magnitude
+        
+        particle = {
+            'x_norm': particle_x,
+            'y_norm': particle_y,
+            'vx_norm': final_vx,
+            'vy_norm': final_vy,
+            'lifetime_ms_remaining': lifetime_ms + random.uniform(-lifetime_ms * 0.2, lifetime_ms * 0.2), # 生命週期帶一點隨機
+            'initial_lifetime_ms': lifetime_ms, # 用於計算顏色漸變的比例
+            'current_color_rgba': list(color_start), # 確保是可變列表
+            'current_size_px': base_size_px, # 初始大小
+        }
+        return particle
+    
     def _load_sound(self, sound_path_str):
         if sound_path_str:
             try:
@@ -64,6 +140,8 @@ class PurgatoryDomainSkill(Skill):
         return True
 
     def activate(self):
+        self.flame_particles.clear() # <<< 新增：清除舊粒子
+        self.last_particle_emission_time = pygame.time.get_ticks()
         current_time = pygame.time.get_ticks()
         if self.active:
             if DEBUG_PURGATORY_SKILL: print(f"[SKILL_DEBUG][{self.__class__.__name__}] ({self.owner.identifier}) Activation failed: Already active.")
@@ -89,19 +167,87 @@ class PurgatoryDomainSkill(Skill):
     def update(self):
         """
         此方法由 PongDuelEnv._update_active_skills() 每幀呼叫。
-        主要負責檢查技能是否因為持續時間結束而需要停用。
-        球體的具體物理行為更新是在 PongDuelEnv.step() 中，
-        當檢測到此技能 active 且 overrides_ball_physics=True 時，
-        透過呼叫 self.update_ball_in_domain() 來實現的。
+        負責檢查技能持續時間、生成和更新火焰粒子。
         """
-        if not self.active:
-            return
+        current_time_ms = pygame.time.get_ticks()
 
-        current_time = pygame.time.get_ticks()
-        if (current_time - self.activated_time) >= self.duration_ms:
-            if DEBUG_PURGATORY_SKILL:
-                print(f"[SKILL_DEBUG][{self.__class__.__name__}] ({self.owner.identifier}) Duration expired. Deactivating from update().")
-            self.deactivate(duration_expired=True) # 傳遞一個原因以供除錯
+        if self.active:
+            # 檢查技能持續時間
+            if (current_time_ms - self.activated_time) >= self.duration_ms:
+                if DEBUG_PURGATORY_SKILL:
+                    print(f"[SKILL_DEBUG][{self.__class__.__name__}] ({self.owner.identifier}) Duration expired. Deactivating from update().")
+                self.deactivate(duration_expired=True)
+                # 技能已停用，但粒子可能還需要最後一次更新（如果deactivate不清除它們）
+                # 或者在這裡直接返回，讓deactivate處理粒子
+                # return # 視 deactivate 的實現而定
+
+            # --- 像素火焰粒子生成 ---
+            if self.flame_particles_enabled:
+                max_particles = self.pixel_flame_config.get("particle_count", 30)
+                # 根據粒子總數和生命週期估算一個合適的生成間隔，嘗試維持最大粒子數
+                # 例如，如果生命週期是500ms，想維持30個粒子，大約每 500/30 = 16ms 生成一個
+                particle_lifetime_ms = self.pixel_flame_config.get("particle_lifetime_ms", 500)
+                emission_interval_ms = (particle_lifetime_ms / max_particles) if max_particles > 0 else 100 # 避免除零
+                
+                if len(self.flame_particles) < max_particles and \
+                    (current_time_ms - self.last_particle_emission_time) > emission_interval_ms:
+                    new_particle = self._create_flame_particle()
+                    if new_particle:
+                        self.flame_particles.append(new_particle)
+                        self.last_particle_emission_time = current_time_ms
+        
+        # --- 像素火焰粒子更新 (無論技能是否 active，只要有粒子就需要更新，直到它們消失) ---
+        if self.flame_particles_enabled and self.flame_particles:
+            # 注意：PongDuelEnv.step 中的 dt 是 time_scale，這裡的粒子更新應該基於真實時間差
+            # 但由於技能的 update 是每幀調用，我們可以假設 dt 約等於 16ms (60FPS)
+            # 如果需要更精確的基於時間的粒子運動，需要從外部傳入真實的 dt_ms
+            # 為了簡化，這裡粒子的速度 vx_norm, vy_norm 可以理解為每幀的偏移量
+            
+            dt_frame_simulated_norm = self.env.time_scale # 使用環境的 time_scale 來調整粒子速度的應用
+
+            particles_to_remove = []
+            for particle in self.flame_particles:
+                particle['lifetime_ms_remaining'] -= (1000/60) # 假設60FPS，每幀約16.67ms
+
+                if particle['lifetime_ms_remaining'] <= 0:
+                    particles_to_remove.append(particle)
+                else:
+                    # 更新位置
+                    particle['x_norm'] += particle['vx_norm'] * dt_frame_simulated_norm
+                    particle['y_norm'] += particle['vy_norm'] * dt_frame_simulated_norm
+
+                    # 更新顏色和大小 (生命週期比例：1 -> 0)
+                    life_ratio = particle['lifetime_ms_remaining'] / particle['initial_lifetime_ms']
+                    life_ratio = max(0, min(1, life_ratio)) # 確保在 0-1 之間
+
+                    # 簡單的兩段顏色插值 (從 start 到 mid，再從 mid 到 end)
+                    color_start = self.pixel_flame_config.get("color_start_rgba", [255, 200, 0, 220])
+                    color_mid = self.pixel_flame_config.get("color_mid_rgba", [255, 100, 0, 180])
+                    color_end = self.pixel_flame_config.get("color_end_rgba", [139, 0, 0, 50])
+
+                    current_rgba = [0,0,0,0]
+                    if life_ratio > 0.5: # 從 start 到 mid
+                        # 0.5 到 1.0 的 life_ratio 映射到 0 到 1 的插值因子 (interp_ratio)
+                        interp_ratio = (life_ratio - 0.5) * 2 
+                        for i in range(4):
+                            current_rgba[i] = int(color_mid[i] + (color_start[i] - color_mid[i]) * interp_ratio)
+                    else: # 從 mid 到 end
+                        # 0 到 0.5 的 life_ratio 映射到 0 到 1 的插值因子 (interp_ratio)
+                        interp_ratio = life_ratio * 2
+                        for i in range(4):
+                            current_rgba[i] = int(color_end[i] + (color_mid[i] - color_end[i]) * interp_ratio)
+                    
+                    particle['current_color_rgba'] = current_rgba
+
+                    # 大小也可以隨生命週期變化 (例如，逐漸變小)
+                    base_size = self.pixel_flame_config.get("particle_base_size_px", 3)
+                    particle['current_size_px'] = max(1, int(base_size * (life_ratio * 0.5 + 0.5))) # 從 base_size 到 base_size*0.5
+
+            for p_remove in particles_to_remove:
+                self.flame_particles.remove(p_remove)
+        elif not self.active and not self.flame_particles:
+            # 如果技能未激活，且沒有粒子了，可以考慮停止頻繁的update檢查（如果有的話）
+            pass
 
     # <<< 保留唯一的 update_ball_in_domain 方法 (第二個定義) >>>
     def update_ball_in_domain(self, current_ball_x, current_ball_y, current_ball_vx, current_ball_vy, current_spin,
@@ -294,15 +440,22 @@ class PurgatoryDomainSkill(Skill):
 
         if self.sound_deactivate:
             self.sound_deactivate.play()
+
         if self.domain_loop_channel:
             self.domain_loop_channel.stop()
             self.domain_loop_channel = None
             if DEBUG_PURGATORY_SKILL:
                 print("    Domain loop sound channel stopped.")
         
+        # <<< 新增開始：清除火焰粒子 >>>
+        if self.flame_particles_enabled:
+            self.flame_particles.clear()
+            if DEBUG_PURGATORY_SKILL:
+                print(f"    [SKILL_DEBUG][{self.__class__.__name__}] ({self.owner.identifier}) Cleared flame particles on deactivate.")
+        # <<< 新增結束：清除火焰粒子 >>>
+        
         # 恢復球體視覺 (如果技能改變了它)
         # self.env.set_ball_visual_override(skill_identifier="purgatory_domain_ball", active=False, owner_identifier=self.owner.identifier)
-
     def is_active(self):
         return self.active
 
@@ -328,15 +481,31 @@ class PurgatoryDomainSkill(Skill):
             return min(1.0, ratio)
 
     def get_visual_params(self):
-        if not self.active:
-            return {"type": "purgatory_domain", "active_effects": False}
+        if not self.active: # 並且可以加上 and not self.flame_particles 如果希望殘留粒子消失後才算完全 false
+            return {
+                "type": "purgatory_domain",
+                "active_effects": False,
+                "pixel_flames_enabled": False, # 明確告知不啟用火焰
+                "pixel_flames_data": {"config": self.pixel_flame_config, "particles": []} # 提供空數據結構
+            }
 
-        return {
+        visual_params = {
             "type": "purgatory_domain",
             "active_effects": True,
             "domain_filter_color_rgba": self.domain_filter_color_rgba,
             "ball_aura_color_rgba": self.ball_aura_color_rgba,
+            "pixel_flames_enabled": self.flame_particles_enabled, # 告知渲染器是否啟用
+            "pixel_flames_data": { # 傳遞粒子效果的靜態配置和動態粒子列表
+                "config": self.pixel_flame_config, # 傳遞火焰效果的靜態配置
+                "particles": self.flame_particles # 傳遞當前所有活動粒子的數據
+            }
         }
+        # 如果技能未激活，但仍有一些殘留效果（例如火焰熄滅過程），這裡可以調整 active_effects
+        # 但對於像素火焰，通常是技能激活時才有
+        if not self.active and not self.flame_particles: # 如果技能已不活動且沒有粒子了
+             visual_params["active_effects"] = False # 可以考慮更精細的控制
+        
+        return visual_params
 
     def render(self, surface):
         pass

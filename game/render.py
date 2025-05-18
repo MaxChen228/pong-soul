@@ -356,7 +356,7 @@ class Renderer:
                                 ball_data,
                                 trail_data,
                                 paddle_height_norm,
-                                game_render_area_on_target,
+                                game_render_area_on_target, # 這個是此視角在目標 surface 上的遊戲區域 Rect
                                 is_top_player_perspective=False):
 
             s = self.game_content_scale_factor
@@ -367,18 +367,54 @@ class Renderer:
 
             self._draw_walls(target_surface_for_view, game_render_area_on_target)
 
-            # --- 技能視覺效果渲染 ---
-            skill_data = view_player_data.get("skill_data")
-            if skill_data:
-                skill_visual_params = skill_data.get("visual_params")
+            # <<< 新增開始：煉獄領域濾鏡效果 >>>
+            # 檢查視角擁有者或對手是否啟用了煉獄領域
+            # 這裡的邏輯是，如果任何一方的煉獄領域技能是 active，就在當前視角應用濾鏡
+            skill_data_view_player = view_player_data.get("skill_data")
+            skill_data_opponent = opponent_data_for_this_view.get("skill_data")
+            domain_filter_color_to_apply = None
+            
+            # 優先檢查當前視角玩家是否發動了煉獄領域
+            if skill_data_view_player and \
+               skill_data_view_player.get("visual_params", {}).get("type") == "purgatory_domain" and \
+               skill_data_view_player.get("visual_params", {}).get("active_effects", False):
+                domain_filter_color_to_apply = skill_data_view_player["visual_params"].get("domain_filter_color_rgba")
+            # 其次檢查對手是否發動了煉獄領域 (如果設計為雙方都能感知到)
+            elif skill_data_opponent and \
+                 skill_data_opponent.get("visual_params", {}).get("type") == "purgatory_domain" and \
+                 skill_data_opponent.get("visual_params", {}).get("active_effects", False):
+                domain_filter_color_to_apply = skill_data_opponent["visual_params"].get("domain_filter_color_rgba")
+
+
+            if domain_filter_color_to_apply:
+                if isinstance(domain_filter_color_to_apply, (list, tuple)) and len(domain_filter_color_to_apply) == 4: # 必須是 RGBA
+                    filter_surface = pygame.Surface((ga_width_scaled, ga_height_scaled), pygame.SRCALPHA)
+                    filter_surface.fill(domain_filter_color_to_apply)
+                    target_surface_for_view.blit(filter_surface, (ga_left, ga_top))
+                    # 您可以在此處加入 DEBUG_RENDERER 判斷來印出除錯訊息
+                    # if DEBUG_RENDERER: 
+                    #     print(f"[DEBUG_RENDER_EFFECTS] Applied Purgatory Domain filter: {domain_filter_color_to_apply} to area {game_render_area_on_target}")
+                # elif DEBUG_RENDERER:
+                #     print(f"[DEBUG_RENDER_EFFECTS] Purgatory Domain filter color is invalid (not RGBA): {domain_filter_color_to_apply}")
+            # <<< 新增結束：煉獄領域濾鏡效果 >>>
+
+            # --- 技能視覺效果渲染 (例如 SlowMo 的時鐘等，確保在濾鏡之上) ---
+            # 繪製當前視角玩家的非全局濾鏡類技能效果
+            if skill_data_view_player:
+                skill_visual_params = skill_data_view_player.get("visual_params")
                 if skill_visual_params and skill_visual_params.get("active_effects", False):
                     skill_type = skill_visual_params.get("type")
                     if skill_type == "slowmo":
                         self._draw_slowmo_visuals(target_surface_for_view, skill_visual_params, game_render_area_on_target, view_player_data)
-                    # elif skill_type == "soul_eater_bug":
-                        # (未改變)
-                    # ... (未改變) ...
-            # --- 技能視覺效果渲染結束 ---
+                    # elif skill_type == "purgatory_domain":
+                        # Purgatory Domain 的球體光環等其他效果會在球體繪製時處理，濾鏡已處理
+                        pass 
+                    # ... 可以添加其他技能的非濾鏡類特效判斷 ...
+            
+            # 繪製此視角的對手的非全局濾鏡類技能效果 (如果需要且設計如此)
+            # 例如，如果對手的 SlowMo 技能的時鐘效果也需要在這個視角看到
+            # (這部分比較複雜，取決於設計，目前 _draw_slowmo_visuals 主要基於 view_player_data)
+
 
             try:
                 ball_norm_x = ball_data["x_norm"]
@@ -391,7 +427,7 @@ class Renderer:
                 ball_center_x_scaled = ga_left + int(ball_norm_x * ga_width_scaled)
                 ball_center_y_scaled = ga_top + int(ball_norm_y_for_view * ga_height_scaled)
 
-                # --- 球拍繪製 (未改變) ---
+                # --- 球拍繪製 ---
                 vp_paddle_norm_x = view_player_data["x_norm"]
                 vp_paddle_center_x_scaled = ga_left + int(vp_paddle_norm_x * ga_width_scaled)
                 vp_paddle_width_scaled = int(view_player_data["paddle_width_norm"] * self.logical_game_area_size * s)
@@ -412,9 +448,8 @@ class Renderer:
                     (opp_paddle_center_x_scaled - opp_paddle_width_scaled // 2,
                     ga_top,
                     opp_paddle_width_scaled, opp_paddle_height_scaled), border_radius=scaled_paddle_border_radius)
-                # --- 球拍繪製結束 ---
 
-                # --- 拖尾繪製 (未改變) ---
+                # --- 拖尾繪製 ---
                 if trail_data:
                     scaled_trail_radius = max(1, int(self.logical_ball_radius_px * 0.4 * s))
                     for i, (tx_norm, ty_norm_raw) in enumerate(trail_data):
@@ -427,79 +462,82 @@ class Renderer:
                         trail_x_scaled = ga_left + int(tx_norm * ga_width_scaled)
                         trail_y_scaled = ga_top + int(trail_ty_norm_for_view * ga_height_scaled)
                         target_surface_for_view.blit(temp_surf, (trail_x_scaled - scaled_trail_radius, trail_y_scaled - scaled_trail_radius))
-                # --- 拖尾繪製結束 ---
+                
+                # --- 球體光芒與圖像 (包含煉獄領域的球體光環處理) ---
+                # 檢查是否有技能覆寫了球體的主要視覺或添加了光環
+                active_skill_visual_params_for_ball = None
+                ball_aura_color = None
 
-                # --- 球體圖像選擇與旋轉 (未改變) ---
-                original_ball_surf = Renderer._original_ball_visuals.get(ball_image_key, Renderer._original_ball_visuals["default"])
-                current_ball_render_image_scaled = pygame.transform.smoothscale(original_ball_surf, (self.scaled_ball_diameter_px, self.scaled_ball_diameter_px))
-                # 注意：self.ball_angle 的更新已移至 Renderer 的 render 方法中，以確保每幀只更新一次
-                # spin_for_this_view = -ball_spin if is_top_player_perspective else ball_spin # 不再需要在此計算
-                # self.ball_angle = (self.ball_angle + spin_for_this_view * 10) % 360 # 不再需要在此計算
-                rotated_ball = pygame.transform.rotate(current_ball_render_image_scaled, self.ball_angle) # 直接使用 self.ball_angle
-                ball_rect = rotated_ball.get_rect(center=(ball_center_x_scaled, ball_center_y_scaled))
-                target_surface_for_view.blit(rotated_ball, ball_rect)
-                # --- 球體圖像選擇與旋轉結束 ---
+                # 檢查當前視角玩家的技能是否影響球體 (例如 Purgatory 的光環)
+                if skill_data_view_player and \
+                   skill_data_view_player.get("visual_params", {}).get("type") == "purgatory_domain" and \
+                   skill_data_view_player.get("visual_params", {}).get("active_effects", False):
+                    ball_aura_color = skill_data_view_player["visual_params"].get("ball_aura_color_rgba")
+                # 或檢查對手的技能是否影響球體 (如果設計是全場效果)
+                elif skill_data_opponent and \
+                     skill_data_opponent.get("visual_params", {}).get("type") == "purgatory_domain" and \
+                     skill_data_opponent.get("visual_params", {}).get("active_effects", False):
+                    ball_aura_color = skill_data_opponent["visual_params"].get("ball_aura_color_rgba")
 
-
-                # --- START OF REFINED MULTI-LAYER GLOW EFFECT ---
+                # 1. 繪製技能指定的光環 (例如煉獄領域的球體光環)
+                if ball_aura_color and isinstance(ball_aura_color, (list, tuple)) and len(ball_aura_color) == 4:
+                    aura_radius_factor = 1.3 # 光環比球體稍大
+                    aura_radius_px = int(self.scaled_ball_diameter_px / 2 * aura_radius_factor)
+                    if aura_radius_px > 0:
+                        aura_surface_size = max(1, aura_radius_px * 2)
+                        aura_surface = pygame.Surface((aura_surface_size, aura_surface_size), pygame.SRCALPHA)
+                        pygame.draw.circle(aura_surface, ball_aura_color, (aura_radius_px, aura_radius_px), aura_radius_px)
+                        aura_rect = aura_surface.get_rect(center=(ball_center_x_scaled, ball_center_y_scaled))
+                        target_surface_for_view.blit(aura_surface, aura_rect)
+                        # if DEBUG_RENDERER:
+                        #    print(f"[DEBUG_RENDER_EFFECTS] Applied Purgatory Ball Aura: {ball_aura_color}")
+                
+                # 2. 繪製常規的旋轉光芒 (如果煉獄光環未完全取代它)
+                #    可以設計成煉獄光環存在時，不顯示常規旋轉光芒，或兩者疊加
+                #    目前邏輯是兩者都可能繪製
                 if abs(ball_spin) > self.glow_spin_threshold:
-                    # 1. 計算標準化的旋轉效果 (0.0 to 1.0)
                     normalized_spin_effect = min(abs(ball_spin) * self.glow_spin_sensitivity, 1.0)
-
-                    if normalized_spin_effect > 0: # 確保有效果才繪製
+                    if normalized_spin_effect > 0:
                         scaled_ball_radius_px = self.scaled_ball_diameter_px // 2
-
-                        # 2. 根據旋轉效果計算當前光芒的整體屬性
                         current_max_radius_factor = self.glow_min_total_radius_factor + \
                                                     (self.glow_max_total_radius_factor - self.glow_min_total_radius_factor) * normalized_spin_effect
                         current_inner_alpha = int(self.glow_min_inner_alpha + \
                                                   (self.glow_max_inner_alpha - self.glow_min_inner_alpha) * normalized_spin_effect)
                         current_outer_alpha_factor = self.glow_min_outer_alpha_factor + \
                                                      (self.glow_max_outer_alpha_factor - self.glow_min_outer_alpha_factor) * normalized_spin_effect
-                        current_outer_alpha_factor = max(0.0, min(1.0, current_outer_alpha_factor)) # 確保因子在0-1之間
+                        current_outer_alpha_factor = max(0.0, min(1.0, current_outer_alpha_factor))
+                        base_glow_rgb = self.glow_base_color_rgb
 
-                        base_glow_rgb = self.glow_base_color_rgb # 已在 __init__ 中處理為RGB
-
-                        # 3. 繪製多層漸變光芒
                         if self.glow_layers > 0:
                             for i in range(self.glow_layers):
-                                # layer_ratio 從 0 (最內層附近) 到 1 (最外層)
-                                # 如果 glow_layers 為 1，則 layer_ratio 為 0 (代表只畫最內層/基礎層)
                                 layer_ratio = i / (self.glow_layers - 1) if self.glow_layers > 1 else 0
-
-                                # 該層光芒的半徑:
-                                # 我們希望光芒從球體實際邊緣開始向外擴展。
-                                # 最內層光芒的半徑略大於球體自身半徑，最外層達到 current_max_radius_factor * 球半徑
-                                # glow_layer_start_radius_offset_factor: 光芒起始層相對於球半徑的額外擴展因子（例如0.05表示比球大5%）
                                 glow_layer_start_radius_offset_factor = 0.05
                                 radius_factor_at_layer_start = 1.0 + glow_layer_start_radius_offset_factor
-
-                                # 這一層的半徑因子，從 radius_factor_at_layer_start 到 current_max_radius_factor
                                 current_layer_radius_factor = radius_factor_at_layer_start + \
                                                               (current_max_radius_factor - radius_factor_at_layer_start) * layer_ratio
                                 layer_radius_px = int(scaled_ball_radius_px * current_layer_radius_factor)
-
-
-                                # 該層光芒的 Alpha: 從 current_inner_alpha 衰減到 current_inner_alpha * current_outer_alpha_factor
-                                # (1.0 - current_outer_alpha_factor) 是總衰減比例
-                                # layer_ratio 越大，越接近 current_outer_alpha_factor
                                 layer_alpha = int(current_inner_alpha * (1.0 - (1.0 - current_outer_alpha_factor) * layer_ratio))
-                                layer_alpha = max(0, min(255, layer_alpha)) # 確保 alpha 在 0-255
+                                layer_alpha = max(0, min(255, layer_alpha))
 
-                                if layer_alpha > 5 and layer_radius_px > scaled_ball_radius_px: # Alpha太小或半徑不大於球則不畫
+                                if layer_alpha > 5 and layer_radius_px > scaled_ball_radius_px:
                                     glow_layer_surface_size = max(1, layer_radius_px * 2)
                                     glow_layer_surface = pygame.Surface((glow_layer_surface_size, glow_layer_surface_size), pygame.SRCALPHA)
-                                    
                                     pygame.draw.circle(glow_layer_surface, (*base_glow_rgb, layer_alpha),
                                                        (layer_radius_px, layer_radius_px), layer_radius_px)
-
                                     glow_layer_rect = glow_layer_surface.get_rect(center=(ball_center_x_scaled, ball_center_y_scaled))
                                     target_surface_for_view.blit(glow_layer_surface, glow_layer_rect)
-                # --- END OF REFINED MULTI-LAYER GLOW EFFECT ---
+                
+                # 3. 繪製球體本身 (圖像)
+                original_ball_surf = Renderer._original_ball_visuals.get(ball_image_key, Renderer._original_ball_visuals["default"])
+                current_ball_render_image_scaled = pygame.transform.smoothscale(original_ball_surf, (self.scaled_ball_diameter_px, self.scaled_ball_diameter_px))
+                rotated_ball = pygame.transform.rotate(current_ball_render_image_scaled, self.ball_angle)
+                ball_rect = rotated_ball.get_rect(center=(ball_center_x_scaled, ball_center_y_scaled))
+                target_surface_for_view.blit(rotated_ball, ball_rect)
+
 
             except Exception as e:
                 player_id_for_debug = view_player_data.get("identifier", "UnknownPlayer")
-                if DEBUG_RENDERER: print(f"[Renderer._render_player_view] ({player_id_for_debug}) drawing error: {e}")
+                # if DEBUG_RENDERER: print(f"[Renderer._render_player_view] ({player_id_for_debug}) drawing error: {e}")
                 import traceback; traceback.print_exc()
 
 
