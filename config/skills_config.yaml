@@ -55,22 +55,22 @@ soul_eater_bug:
 purgatory_domain:
   code_name: "purgatory_domain" # 內部代號，用於程式選擇等
   display_name: "purgatory"   # 顯示名稱，用於UI
-  duration_ms: 7000
-  cooldown_ms: 15000
+  duration_ms: 5000
+  cooldown_ms: 8000
   bar_color: [70, 0, 100] # UI技能條顏色
 
   # 技能核心機制參數 (初步)
-  ball_instability_factor: 0.1  # 影響球路徑隨機性的因子 (數值越大越不穩定)
-  ball_base_speed_in_domain: 0.03 # 領域內球的基礎速度 (正規化)
-  ball_seek_target_strength: 0.02 # 球「追蹤」對手空檔的強度 (0表示不追蹤)
-  opponent_paddle_slowdown_factor: 0.8 # 對手板子速度變為原來的百分比 (例如0.8表示減速20%)
+  ball_instability_factor: 0.3  # 影響球路徑隨機性的因子 (數值越大越不穩定)
+  ball_base_speed_in_domain: 0.035 # 領域內球的基礎速度 (正規化)
+  ball_seek_target_strength: 0.2 # 球「追蹤」對手空檔的強度 (0表示不追蹤)
+  opponent_paddle_slowdown_factor: 0.6 # 對手板子速度變為原來的百分比 (例如0.8表示減速20%)
 
   # 視覺特效參數 (初步，主要給 Renderer 使用)
-  domain_filter_color_rgba: [30, 0, 50, 100] # 煉獄領域的半透明濾鏡顏色 (R,G,B,Alpha)
-  ball_aura_color_rgba: [120, 50, 150, 200] # 包裹球體的暗能量光環顏色
+  domain_filter_color_rgba:  [139, 0, 0, 70]  # 煉獄領域的半透明濾鏡顏色 (R,G,B,Alpha)
+  ball_aura_color_rgba: [255, 69, 0, 180] # 包裹球體的暗能量光環顏色
 
   # 音效路徑 (佔位符，實際路徑需要您提供或後續添加)
-  sound_activate: "assets/sfx/purgatory_activate.ogg"
-  sound_domain_loop: "assets/sfx/purgatory_loop.ogg" # 領域持續期間的背景音效
-  sound_ball_event: "assets/sfx/purgatory_ball_event.ogg" # 球在領域內特殊變向或攻擊時的音效
-  sound_deactivate: "assets/sfx/purgatory_deactivate.ogg"
+  sound_activate: "assets/sfx/purgatory_activate.mp3"
+  sound_domain_loop: "assets/sfx/purgatory_activate.mp3" # 領域持續期間的背景音效
+  sound_ball_event: "assets/sfx/purgatory_activate.mp3" # 球在領域內特殊變向或攻擊時的音效
+  sound_deactivate: "assets/sfx/purgatory_activate.mp3"

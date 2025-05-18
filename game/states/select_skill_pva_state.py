@@ -12,7 +12,8 @@ class SelectSkillPvaState(BaseState):
         self.skills_options = [
             ("Slow Mo", "slowmo"),
             ("Long Paddle", "long_paddle"),
-            ("Soul Eater Bug", "soul_eater_bug")
+            ("Soul Eater Bug", "soul_eater_bug"),
+            ("Purgatory Domain", "purgatory_domain")
         ]
         self.display_options = [opt[0] for opt in self.skills_options]
         self.selected_index = 0
