@@ -105,6 +105,11 @@ class SoulEaterBugSkill(Skill):
         self.bug_x_rl_move_speed = float(cfg.get("bug_x_rl_move_speed", 0.02))
         self.bug_y_rl_move_speed = float(cfg.get("bug_y_rl_move_speed", 0.02))
         self.base_y_speed = float(cfg.get("base_y_speed", 0.0))
+        self.opponent_paddle_width_factor_for_bug = float(cfg.get("opponent_paddle_width_factor_for_bug", 1.0))
+
+        if DEBUG_BUG_SKILL: # 這行原有的 DEBUG 輸出可以保持或移到此段後
+            # print(f"[SKILL_DEBUG][SoulEaterBugSkill] ({self.owner.identifier}) Initialized. Target: {self.target_player_state.identifier}") # 這句可以移到新 print 之後或合併
+            print(f"[SKILL_DEBUG][SoulEaterBugSkill] ({self.owner.identifier}) Initialized. Target: {self.target_player_state.identifier}, Opponent paddle width factor for bug: {self.opponent_paddle_width_factor_for_bug}")
         self.is_resting = False
         self.rest_timer_frames = 0
 
@@ -274,8 +279,14 @@ class SoulEaterBugSkill(Skill):
         bug_collision_radius_norm = self.env.ball_radius_normalized # ⭐️ 使用標準球體半徑
         target_paddle = self.target_player_state
         target_paddle_x_norm = target_paddle.x
-        target_paddle_half_w_norm = target_paddle.paddle_width_normalized / 2
-        
+
+        # ---- 應用獨立碰撞寬度因子 ----
+        original_target_paddle_width_norm = target_paddle.paddle_width_normalized
+        # 計算針對蟲的有效板子寬度 (正規化)
+        effective_target_paddle_width_norm = original_target_paddle_width_norm * self.opponent_paddle_width_factor_for_bug
+        target_paddle_half_w_norm = effective_target_paddle_width_norm / 2.0
+        # ---- 修改結束 ----
+
         target_paddle_y_surface_contact_min_norm = 0.0
         target_paddle_y_surface_contact_max_norm = 0.0
 
@@ -285,28 +296,32 @@ class SoulEaterBugSkill(Skill):
         else: 
             target_paddle_y_surface_contact_min_norm = 1.0 - self.env.paddle_height_normalized
             target_paddle_y_surface_contact_max_norm = 1.0
-            
-        bug_y_min_norm = self.env.ball_y - bug_collision_radius_norm # ⭐️ 修改此處
-        bug_y_max_norm = self.env.ball_y + bug_collision_radius_norm # ⭐️ 修改此處
-        bug_x_min_norm = self.env.ball_x - bug_collision_radius_norm # ⭐️ 修改此處
-        bug_x_max_norm = self.env.ball_x + bug_collision_radius_norm # ⭐️ 修改此處
+
+        bug_y_min_norm = self.env.ball_y - bug_collision_radius_norm
+        bug_y_max_norm = self.env.ball_y + bug_collision_radius_norm
+        bug_x_min_norm = self.env.ball_x - bug_collision_radius_norm
+        bug_x_max_norm = self.env.ball_x + bug_collision_radius_norm
+
+        # 使用新的 target_paddle_half_w_norm 計算 X 軸碰撞邊界
         target_paddle_x_min_norm = target_paddle_x_norm - target_paddle_half_w_norm
         target_paddle_x_max_norm = target_paddle_x_norm + target_paddle_half_w_norm
 
         y_overlap = (bug_y_max_norm >= target_paddle_y_surface_contact_min_norm and \
-                     bug_y_min_norm <= target_paddle_y_surface_contact_max_norm)
+                    bug_y_min_norm <= target_paddle_y_surface_contact_max_norm)
         x_overlap = (bug_x_max_norm >= target_paddle_x_min_norm and \
-                     bug_x_min_norm <= target_paddle_x_max_norm)
+                    bug_x_min_norm <= target_paddle_x_max_norm)
 
         if x_overlap and y_overlap:
-            if DEBUG_BUG_SKILL:
+            if DEBUG_BUG_SKILL: # 除錯訊息
                 print(f"[SKILL_DEBUG][SoulEaterBugSkill] ({self.owner.identifier}) Bug hit {target_paddle.identifier}'s paddle!")
-                # ⭐️ 添加更詳細的碰撞時的 DEBUG 訊息
+                print(f"    Original paddle width_norm: {original_target_paddle_width_norm:.4f}")
+                print(f"    Effective paddle width_norm for bug: {effective_target_paddle_width_norm:.4f} (Factor: {self.opponent_paddle_width_factor_for_bug})")
                 print(f"    bug_x_norm: {self.env.ball_x:.4f}, bug_y_norm: {self.env.ball_y:.4f}, bug_collision_radius_norm: {bug_collision_radius_norm:.4f}")
                 print(f"    bug_x_min: {bug_x_min_norm:.4f}, bug_x_max: {bug_x_max_norm:.4f}, bug_y_min: {bug_y_min_norm:.4f}, bug_y_max: {bug_y_max_norm:.4f}")
-                print(f"    paddle_x_norm: {target_paddle_x_norm:.4f}, paddle_half_w: {target_paddle_half_w_norm:.4f}")
-                print(f"    paddle_x_min: {target_paddle_x_min_norm:.4f}, paddle_x_max: {target_paddle_x_max_norm:.4f}")
+                print(f"    paddle_x_norm: {target_paddle_x_norm:.4f}, effective_paddle_half_w: {target_paddle_half_w_norm:.4f}")
+                print(f"    effective_paddle_x_min: {target_paddle_x_min_norm:.4f}, effective_paddle_x_max: {target_paddle_x_max_norm:.4f}")
                 print(f"    paddle_y_contact_min: {target_paddle_y_surface_contact_min_norm:.4f}, paddle_y_contact_max: {target_paddle_y_surface_contact_max_norm:.4f}")
+
             self.env.freeze_timer = pygame.time.get_ticks() 
             self.env.round_concluded_by_skill = True 
             self.env.current_round_info = {'scorer': None, 'reason': 'bug_hit_paddle'} 
