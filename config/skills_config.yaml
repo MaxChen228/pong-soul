@@ -38,14 +38,39 @@ soul_eater_bug:
   sound_score: "assets/bug_score.mp3"
 
   # --- 新增 RL 相關參數 ---
-  rl_model_path: "bug_models/bug_agent2_ep1000.pth" # ⭐️ 您的噬魂蟲 RL 模型路徑
+  rl_model_path: "bug_models/bug_agent_ep9000.pth" # ⭐️ 您的噬魂蟲 RL 模型路徑
   # bug_rl_action_type: "discrete_xy_thrust" # ⭐️ (可選) 動作類型說明
-  bug_x_rl_move_speed: 0.01  # ⭐️ (可選) 如果動作是離散推力，X方向每單位動作的速度
-  bug_y_rl_move_speed: 0.01  # ⭐️ (可選) 如果動作是離散推力，Y方向每單位動作的速度
+  bug_x_rl_move_speed: 0.05  # ⭐️ (可選) 如果動作是離散推力，X方向每單位動作的速度
+  bug_y_rl_move_speed: 0.03  # ⭐️ (可選) 如果動作是離散推力，Y方向每單位動作的速度
 
   # --- 保留或調整的參數 ---
-  base_y_speed: 0.00 # ⭐️ 基礎的 Y 軸趨向速度 (可以讓 RL 在此基礎上調整)
+  base_y_speed: 0.02 # ⭐️ 基礎的 Y 軸趨向速度 (可以讓 RL 在此基礎上調整)
                        #    或者如果 RL 完全控制 Y 軸，則可設為 0 或移除
 
   # --- 移除或註解掉的舊硬編碼移動參數 ---
   opponent_paddle_width_factor_for_bug: 1.3 # 示例值：板子有效寬度為正常的80%
+
+# ... 其他技能 ...
+
+purgatory_domain:
+  code_name: "purgatory_domain" # 內部代號，用於程式選擇等
+  display_name: "purgatory"   # 顯示名稱，用於UI
+  duration_ms: 7000
+  cooldown_ms: 15000
+  bar_color: [70, 0, 100] # UI技能條顏色
+
+  # 技能核心機制參數 (初步)
+  ball_instability_factor: 0.1  # 影響球路徑隨機性的因子 (數值越大越不穩定)
+  ball_base_speed_in_domain: 0.03 # 領域內球的基礎速度 (正規化)
+  ball_seek_target_strength: 0.02 # 球「追蹤」對手空檔的強度 (0表示不追蹤)
+  opponent_paddle_slowdown_factor: 0.8 # 對手板子速度變為原來的百分比 (例如0.8表示減速20%)
+
+  # 視覺特效參數 (初步，主要給 Renderer 使用)
+  domain_filter_color_rgba: [30, 0, 50, 100] # 煉獄領域的半透明濾鏡顏色 (R,G,B,Alpha)
+  ball_aura_color_rgba: [120, 50, 150, 200] # 包裹球體的暗能量光環顏色
+
+  # 音效路徑 (佔位符，實際路徑需要您提供或後續添加)
+  sound_activate: "assets/sfx/purgatory_activate.ogg"
+  sound_domain_loop: "assets/sfx/purgatory_loop.ogg" # 領域持續期間的背景音效
+  sound_ball_event: "assets/sfx/purgatory_ball_event.ogg" # 球在領域內特殊變向或攻擊時的音效
+  sound_deactivate: "assets/sfx/purgatory_deactivate.ogg"

@@ -14,6 +14,7 @@ from game.player_state import PlayerState
 from game.skills.long_paddle_skill import LongPaddleSkill
 from game.skills.slowmo_skill import SlowMoSkill
 from game.skills.soul_eater_bug_skill import SoulEaterBugSkill
+from game.skills.purgatory_domain_skill import PurgatoryDomainSkill
 
 DEBUG_ENV = False
 DEBUG_ENV_FULLSCREEN = False
@@ -127,6 +128,7 @@ class PongDuelEnv:
             "long_paddle": LongPaddleSkill,
             "slowmo": SlowMoSkill,
             "soul_eater_bug": SoulEaterBugSkill,
+            "purgatory_domain": PurgatoryDomainSkill, # <-- 新增這行
         }
         skill_class = available_skills.get(skill_code)
         if skill_class:
@@ -301,17 +303,60 @@ class PongDuelEnv:
         self.player1.prev_x = self.player1.x
         self.opponent.prev_x = self.opponent.x
         
-        player_base_move_speed = GameSettings.PLAYER_MOVE_SPEED # <--- 從 GameSettings 讀取基礎移動速度
+        player_base_move_speed = GameSettings.PLAYER_MOVE_SPEED
         
-        # 計算 Player 1 的移動
-        # ⭐️ 使用 current_paddle_speed_multiplier
-        p1_effective_move_speed = player_base_move_speed * self.player1.current_paddle_speed_multiplier
+        # --- Player 1 移動計算 ---
+        p1_current_speed_multiplier = 1.0 # 預設
+        if self.player1.skill_instance and hasattr(self.player1.skill_instance, 'owner_paddle_speed_multiplier'):
+             # 例如 SlowMoSkill 可能會改變自己的板子速度
+            p1_current_speed_multiplier = self.player1.skill_instance.owner_paddle_speed_multiplier \
+                if self.player1.skill_instance.is_active() and hasattr(self.player1.skill_instance, 'active') \
+                else self.player1.current_paddle_speed_multiplier # 如果技能沒有active屬性或未啟用，則使用PlayerState的
+        else:
+            p1_current_speed_multiplier = self.player1.current_paddle_speed_multiplier
+
+
+        p1_effective_move_speed = player_base_move_speed * p1_current_speed_multiplier
         if player1_action_input == 0: 
             self.player1.x -= p1_effective_move_speed * time_scale
         elif player1_action_input == 2: 
             self.player1.x += p1_effective_move_speed * time_scale
         
-        opp_effective_move_speed = player_base_move_speed * self.opponent.current_paddle_speed_multiplier
+        # --- Opponent 移動計算 ---
+        opp_current_speed_multiplier = 1.0 # 預設
+        # 檢查是否 Player1 的 PurgatoryDomainSkill 啟用並影響對手
+        purgatory_active_by_p1 = False
+        purgatory_slowdown_factor_from_p1 = 1.0
+        if self.player1.skill_instance and \
+           isinstance(self.player1.skill_instance, PurgatoryDomainSkill) and \
+           self.player1.skill_instance.is_active():
+            purgatory_active_by_p1 = True
+            purgatory_slowdown_factor_from_p1 = self.player1.skill_instance.opponent_paddle_slowdown_factor
+            if DEBUG_ENV: print(f"[SKILL_DEBUG][PongDuelEnv] P1's Purgatory affecting Opponent paddle speed with factor: {purgatory_slowdown_factor_from_p1}")
+
+        # 檢查是否 Opponent 自己的 SlowMoSkill 等技能啟用並影響自己
+        opp_self_skill_multiplier = 1.0
+        if self.opponent.skill_instance and hasattr(self.opponent.skill_instance, 'owner_paddle_speed_multiplier'):
+            opp_self_skill_multiplier = self.opponent.skill_instance.owner_paddle_speed_multiplier \
+                if self.opponent.skill_instance.is_active() and hasattr(self.opponent.skill_instance, 'active') \
+                else self.opponent.current_paddle_speed_multiplier
+        else:
+            opp_self_skill_multiplier = self.opponent.current_paddle_speed_multiplier
+            
+        # 最終對手速度倍率：取 Purgatory 的影響 和 對手自身技能影響 的最小值（如果 Purgatory 是減速）
+        # 或者更合理的：Purgatory 的減速應該優先於對手自身的加速（如果有的話）
+        if purgatory_active_by_p1:
+            # 如果 Purgatory 啟動，對手的速度受到其 slowdown_factor 影響
+            # 同時，如果對手自己有加速技能，這個加速效果也應該被 Purgatory 的減速所調和
+            # 例如：基礎速度 * Purgatory減速 * 對手自身技能加速 (如果 Purgatory減速是0.8, 對手加速是1.2, 則 0.8*1.2)
+            # 或者，如果 Purgatory 是主導的負面效果，可以直接使用其因子，或取更嚴格的那個
+            opp_current_speed_multiplier = opp_self_skill_multiplier * purgatory_slowdown_factor_from_p1
+            if DEBUG_ENV and purgatory_slowdown_factor_from_p1 != 1.0 : print(f"Opponent speed affected by P1 Purgatory: final_mult={opp_current_speed_multiplier}")
+        else:
+            opp_current_speed_multiplier = opp_self_skill_multiplier
+
+
+        opp_effective_move_speed = player_base_move_speed * opp_current_speed_multiplier
         if opponent_action_input == 0: 
             self.opponent.x -= opp_effective_move_speed * time_scale
         elif opponent_action_input == 2: 
@@ -514,44 +559,95 @@ class PongDuelEnv:
                     print(f"[PongDuelEnv._scale_difficulty] Bounces: {self.bounces}, Multiplier: {speed_multiplier:.3f}, New Speed Mag: {target_speed_magnitude:.4f}")
 
     def step(self, player1_action_input, opponent_action_input):
-        current_time_ticks = pygame.time.get_ticks()
-        
+        current_time_ticks = pygame.time.get_ticks() # 獲取當前時間，用於計時器等
+
+        # 1. 處理凍結時間 (如果有的話)
         if self.freeze_timer > 0:
             if current_time_ticks - self.freeze_timer < self.freeze_duration:
-                return self._get_obs(), 0, False, False, {'scorer': None}
+                # 仍在凍結時間內，不執行任何遊戲邏輯更新，直接返回當前觀察值
+                return self._get_obs(), 0, False, False, {'scorer': None, 'reason': None}
             else:
-                self.freeze_timer = 0
+                self.freeze_timer = 0 # 凍結時間結束
 
+        # 2. 決定當前的時間縮放 (例如，受 SlowMoSkill 影響)
         current_time_scale = self._determine_time_scale()
-        self.time_scale = current_time_scale
+        self.time_scale = current_time_scale # 更新環境的時間縮放因子
 
+        # 3. 更新玩家板子的位置
         self._update_player_positions(player1_action_input, opponent_action_input, current_time_scale)
 
-        old_ball_y_for_collision = self.ball_y 
+        # 4. 記錄球體在物理更新前的位置 (用於碰撞檢測)
+        old_ball_y_for_collision = self.ball_y
 
+        # 5. 重置回合結束標誌 (這些標誌可能被技能或常規物理設定)
         self.round_concluded_by_skill = False
-        self.current_round_info = {}
-        self._update_active_skills()
+        self.current_round_info = {'scorer': None, 'reason': None} # 提供預設鍵
 
-        if self.round_concluded_by_skill:
-            if DEBUG_ENV: print(f"[SKILL_DEBUG][PongDuelEnv.step] Round concluded by SKILL. Info: {self.current_round_info}")
-            game_over_after_skill = self.player1.lives <= 0 or self.opponent.lives <= 0
-            final_info = {'scorer': None}
-            final_info.update(self.current_round_info)
-            return self._get_obs(), 0, True, game_over_after_skill, final_info
+        # 6. 更新啟用技能的內部狀態 (例如，檢查持續時間)
+        self._update_active_skills() # 這個方法只更新技能的計時器等，不處理球體物理
 
-        run_normal_ball_physics = True
-        if (self.player1.skill_instance and self.player1.skill_instance.is_active() and 
-            getattr(self.player1.skill_instance, 'overrides_ball_physics', False)):
-            run_normal_ball_physics = False
-        elif (self.opponent.skill_instance and self.opponent.skill_instance.is_active() and
-              getattr(self.opponent.skill_instance, 'overrides_ball_physics', False)):
-            run_normal_ball_physics = False
+        # 7. 檢查是否有技能覆寫了球體物理
+        active_physics_override_skill_owner = None
+        active_skill_instance = None
 
-        reward = 0
+        if self.player1.skill_instance and \
+           self.player1.skill_instance.is_active() and \
+           getattr(self.player1.skill_instance, 'overrides_ball_physics', False):
+            active_physics_override_skill_owner = self.player1
+            active_skill_instance = self.player1.skill_instance
+        elif self.opponent.skill_instance and \
+             self.opponent.skill_instance.is_active() and \
+             getattr(self.opponent.skill_instance, 'overrides_ball_physics', False):
+            active_physics_override_skill_owner = self.opponent
+            active_skill_instance = self.opponent.skill_instance
+
+        run_normal_ball_physics = True # 預設執行常規物理
+        round_done_by_skill_override = False
+        info_from_skill_override = {'scorer': None, 'reason': None}
+
+
+        if active_physics_override_skill_owner and active_skill_instance:
+            if DEBUG_ENV: # 使用您環境的全域 DEBUG_ENV 旗標
+                print(f"[SKILL_DEBUG][PongDuelEnv.step] Physics overridden by {active_physics_override_skill_owner.identifier}'s skill: {active_skill_instance.__class__.__name__}")
+
+            # 檢查是否是 PurgatoryDomainSkill，並調用其專用方法
+            if isinstance(active_skill_instance, PurgatoryDomainSkill):
+                run_normal_ball_physics = False # 技能將處理球體
+                target_player = self.opponent if active_physics_override_skill_owner == self.player1 else self.player1
+                
+                # 調用技能的球體更新方法
+                new_ball_x, new_ball_y, new_ball_vx, new_ball_vy, new_spin, \
+                round_done_by_skill_override, info_from_skill_override = active_skill_instance.update_ball_in_domain(
+                    current_ball_x=self.ball_x, current_ball_y=self.ball_y,
+                    current_ball_vx=self.ball_vx, current_ball_vy=self.ball_vy,
+                    current_spin=self.spin,
+                    dt=current_time_scale, # 傳遞 dt
+                    target_player_state=target_player,
+                    owner_player_state=active_physics_override_skill_owner,
+                    env_paddle_height_norm=self.paddle_height_normalized,
+                    env_ball_radius_norm=self.ball_radius_normalized,
+                    env_render_size=self.render_size
+                )
+                # 更新環境中的球體狀態
+                self.ball_x, self.ball_y = new_ball_x, new_ball_y
+                self.ball_vx, self.ball_vy = new_ball_vx, new_ball_vy
+                self.spin = new_spin
+
+                if round_done_by_skill_override:
+                    self.round_concluded_by_skill = True # 標記回合由技能結束
+                    self.current_round_info = info_from_skill_override
+                    # 如果技能導致得分，也應該觸發凍結
+                    if info_from_skill_override.get('scorer') is not None:
+                        self.freeze_timer = pygame.time.get_ticks()
+                    if DEBUG_ENV:
+                        print(f"[SKILL_DEBUG][PongDuelEnv.step] Round concluded by PurgatoryDomainSkill. Info: {self.current_round_info}")
+            
+            # (未來可以為其他覆寫物理的技能添加 elif isinstance(...) 判斷)
+
+        # 8. 根據 run_normal_ball_physics 決定是否執行常規球體物理
+        reward = 0 # 獎勵值 (主要用於強化學習，此處可保持為0)
         round_done_by_normal_physics = False
-        game_over_by_normal_physics = False
-        info_from_normal_physics = {'scorer': None}
+        info_from_normal_physics = {'scorer': None, 'reason': None}
 
         if run_normal_ball_physics:
             self._apply_ball_movement_and_physics(current_time_scale)
@@ -562,20 +658,33 @@ class PongDuelEnv:
             if round_done_by_normal_physics and DEBUG_ENV:
                 print(f"[NORMAL_PHYSICS][PongDuelEnv.step] Round ended by NORMAL physics. Scorer: {info_from_normal_physics.get('scorer')}. P1 Lives: {self.player1.lives}, Opponent Lives: {self.opponent.lives}")
         
-        if round_done_by_normal_physics or self.round_concluded_by_skill :
-            game_over_by_normal_physics = self.player1.lives <= 0 or self.opponent.lives <= 0
-            if game_over_by_normal_physics and DEBUG_ENV:
-                print(f"[NORMAL_PHYSICS][PongDuelEnv.step] GAME OVER by NORMAL physics detected.")
+        # 9. 整合回合結束狀態和遊戲結束狀態
+        final_round_done = self.round_concluded_by_skill or round_done_by_normal_physics
+        final_game_over = False # 預設遊戲未結束
+        final_info_to_return = {'scorer': None, 'reason': None} # 確保有預設鍵
 
-        final_round_done = round_done_by_normal_physics or self.round_concluded_by_skill
-        final_game_over = game_over_by_normal_physics
-        
-        final_info_to_return = {'scorer': None}
-        if self.round_concluded_by_skill:
+        if self.round_concluded_by_skill: # 如果是技能導致回合結束
             final_info_to_return.update(self.current_round_info)
-        elif round_done_by_normal_physics:
+        elif round_done_by_normal_physics: # 如果是常規物理導致回合結束
             final_info_to_return.update(info_from_normal_physics)
+        
+        if final_round_done:
+            # 檢查任一方生命值是否耗盡
+            final_game_over = self.player1.lives <= 0 or self.opponent.lives <= 0
+            if final_game_over and DEBUG_ENV:
+                winner = "Opponent" if self.player1.lives <= 0 else "Player1"
+                if self.round_concluded_by_skill and self.current_round_info.get('scorer'):
+                    winner_identifier = self.current_round_info['scorer']
+                    if winner_identifier == self.player1.identifier: winner = "Player1 (Skill)"
+                    elif winner_identifier == self.opponent.identifier: winner = "Opponent (Skill)"
+                elif round_done_by_normal_physics and info_from_normal_physics.get('scorer'):
+                    winner_identifier = info_from_normal_physics['scorer']
+                    if winner_identifier == 'player1': winner = "Player1 (Normal)"
+                    elif winner_identifier == 'opponent': winner = "Opponent (Normal)"
+
+                print(f"[PongDuelEnv.step] GAME OVER detected. Winner: {winner} (P1 Lives: {self.player1.lives}, Opp Lives: {self.opponent.lives})")
             
+        # 10. 返回觀察值、獎勵、回合結束標誌、遊戲結束標誌、以及回合信息
         return self._get_obs(), reward, final_round_done, final_game_over, final_info_to_return
 
     def render(self):
