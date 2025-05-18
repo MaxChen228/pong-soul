@@ -28,11 +28,13 @@ class PlayerState:
         self.base_paddle_color = Style.PLAYER_COLOR if self.identifier == "player1" else Style.AI_COLOR # 簡單的預設
         self.paddle_color = self.base_paddle_color # 當前球拍顏色
 
+        # ⭐️ 新增：目前板子速度倍率
+        self.current_paddle_speed_multiplier = 1.0
+
         self.env_render_size = env_render_size # 儲存 render_size 以便後續計算
         self.paddle_width_normalized = self.paddle_width / env_render_size if env_render_size > 0 else 0
         self.base_paddle_width_normalized = self.base_paddle_width / env_render_size if env_render_size > 0 else 0
-
-        print(f"[SKILL_DEBUG][PlayerState] ({self.identifier}) Initialized: x={self.x}, paddle_width={self.paddle_width}, lives={self.lives}, skill_code='{self.skill_code_name}', color={self.paddle_color}")
+    
 
     def update_paddle_width_normalized(self, new_width_pixels): # 移除 env_render_size 參數，使用 self.env_render_size
         self.paddle_width = new_width_pixels
@@ -47,9 +49,11 @@ class PlayerState:
         self.paddle_width = self.base_paddle_width
         self.paddle_width_normalized = self.base_paddle_width_normalized
         self.paddle_color = self.base_paddle_color
+        # ⭐️ 重置板子速度倍率
+        self.current_paddle_speed_multiplier = 1.0
 
         if self.skill_instance and hasattr(self.skill_instance, 'deactivate') and self.skill_instance.is_active():
             print(f"[SKILL_DEBUG][PlayerState] ({self.identifier}) Deactivating skill during reset.")
             self.skill_instance.deactivate() # 確保技能被停用
 
-        print(f"[SKILL_DEBUG][PlayerState] ({self.identifier}) State reset: x={self.x}, paddle_width={self.paddle_width}, color={self.paddle_color}")
+        print(f"[SKILL_DEBUG][PlayerState] ({self.identifier}) State reset: x={self.x}, paddle_width={self.paddle_width}, color={self.paddle_color}, speed_mult={self.current_paddle_speed_multiplier}")

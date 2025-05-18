@@ -2,7 +2,7 @@
 
 slowmo:
   duration_ms: 3000
-  cooldown_ms: 5000
+  cooldown_ms: 1000
   paddle_color: [0, 150, 255]
   fog_duration_ms: 2000 # From SKILL_CONFIGS.py
   trail_color: [0, 200, 255]
@@ -12,9 +12,10 @@ slowmo:
   clock_line_width: 4 # From SKILL_CONFIGS.py (used as clock_line_width_logic_px in skill)
   # --- Parameters from SlowMoSkill that were in its internal default cfg if not in SKILL_CONFIGS ---
   # These should now be taken from above if they map, or skill uses internal defaults if still not present.
-  slow_time_scale: 0.2 # Not in SKILL_CONFIGS.py under 'slowmo', skill will use its own default if not found by key
-  fadeout_duration_ms: 1500 # Not in SKILL_CONFIGS.py under 'slowmo'
-  shockwave_expand_speed_logic_px: 15 # Not in SKILL_CONFIGS.py under 'slowmo'
+  slow_time_scale: 0.15 # Not in SKILL_CONFIGS.py under 'slowmo', skill will use its own default if not found by key
+  fadeout_duration_ms: 500 # Not in SKILL_CONFIGS.py under 'slowmo'
+  shockwave_expand_speed_logic_px: 30 # Not in SKILL_CONFIGS.py under 'slowmo'
+  owner_paddle_speed_multiplier: 10
 
 long_paddle:
   duration_ms: 3000

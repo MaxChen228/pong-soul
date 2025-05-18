@@ -230,12 +230,57 @@ class PongDuelEnv:
         return self._get_obs(), {}
 
     def _get_obs(self):
-        obs_array = [
-            self.ball_x, self.ball_y,
-            self.ball_vx, self.ball_vy,
-            self.player1.x, self.opponent.x,
+        # AI (self.opponent) is the top paddle in pong-soul's PvA mode.
+        # This observation needs to match the perspective of Player A (top paddle)
+        # in your training environment (my_pong_env_2p.py).
+
+        # Ball position and velocity from pong-soul's perspective
+        ball_x_ps = self.ball_x
+        ball_y_ps = self.ball_y
+        ball_vx_ps = self.ball_vx
+        ball_vy_ps = self.ball_vy
+
+        # Paddle positions from pong-soul's perspective
+        ai_paddle_x_ps = self.opponent.x  # This is "my_paddle_x" for the AI
+        player_paddle_x_ps = self.player1.x # This is "other_paddle_x" for the AI
+
+        # Spin
+        current_spin = self.spin
+
+        # --- Apply transformations to match training environment's Player A ---
+        # 1. Ball Y coordinate: Inverted (1.0 - original_y) for top paddle perspective
+        obs_ball_y = 1.0 - ball_y_ps
+
+        # 2. Ball Y velocity: Inverted (-original_vy) for top paddle perspective
+        obs_ball_vy = -ball_vy_ps
+
+        # 3. My (AI's) paddle X: Directly use ai_paddle_x_ps
+        obs_my_paddle_x = ai_paddle_x_ps
+
+        # 4. Other (Player's) paddle X: Directly use player_paddle_x_ps
+        obs_other_paddle_x = player_paddle_x_ps
+
+        # 5. Ball X, Ball VX, Spin: No change in perspective needed for these relative to the field
+        obs_ball_x = ball_x_ps
+        obs_ball_vx = ball_vx_ps
+        obs_spin = current_spin
+
+        obs_for_ai_agent = [
+            obs_ball_x,
+            obs_ball_y,
+            obs_ball_vx,
+            obs_ball_vy,
+            obs_my_paddle_x,
+            obs_other_paddle_x,
+            obs_spin
         ]
-        return np.array(obs_array, dtype=np.float32)
+        
+        # DEBUG_ENV is a flag you might have at the top of this file
+        if DEBUG_ENV: # Or replace with a more specific debug flag if you prefer
+            print(f"[DEBUG_PONG_DUEL_ENV_GET_OBS] Raw (pong-soul): ball_y={ball_y_ps:.3f}, ball_vy={ball_vy_ps:.3f}, opp_x={ai_paddle_x_ps:.3f}, p1_x={player_paddle_x_ps:.3f}, spin={current_spin:.3f}")
+            print(f"[DEBUG_PONG_DUEL_ENV_GET_OBS] Observation for AI: ball_x={obs_ball_x:.3f}, ball_y={obs_ball_y:.3f}, ball_vx={obs_ball_vx:.3f}, ball_vy={obs_ball_vy:.3f}, my_paddle_x={obs_my_paddle_x:.3f}, other_paddle_x={obs_other_paddle_x:.3f}, spin={obs_spin:.3f}")
+
+        return np.array(obs_for_ai_agent, dtype=np.float32)
     
     def _determine_time_scale(self):
         current_time_scale = 1.0
@@ -251,17 +296,26 @@ class PongDuelEnv:
             current_time_scale = active_slowmo_skill.slow_time_scale_value
         return current_time_scale
 
+
     def _update_player_positions(self, player1_action_input, opponent_action_input, time_scale):
         self.player1.prev_x = self.player1.x
         self.opponent.prev_x = self.opponent.x
         
-        player_move_speed = GameSettings.PLAYER_MOVE_SPEED # <--- 從 GameSettings 讀取
+        player_base_move_speed = GameSettings.PLAYER_MOVE_SPEED # <--- 從 GameSettings 讀取基礎移動速度
         
-        if player1_action_input == 0: self.player1.x -= player_move_speed * time_scale
-        elif player1_action_input == 2: self.player1.x += player_move_speed * time_scale
+        # 計算 Player 1 的移動
+        # ⭐️ 使用 current_paddle_speed_multiplier
+        p1_effective_move_speed = player_base_move_speed * self.player1.current_paddle_speed_multiplier
+        if player1_action_input == 0: 
+            self.player1.x -= p1_effective_move_speed * time_scale
+        elif player1_action_input == 2: 
+            self.player1.x += p1_effective_move_speed * time_scale
         
-        if opponent_action_input == 0: self.opponent.x -= player_move_speed * time_scale
-        elif opponent_action_input == 2: self.opponent.x += player_move_speed * time_scale
+        opp_effective_move_speed = player_base_move_speed * self.opponent.current_paddle_speed_multiplier
+        if opponent_action_input == 0: 
+            self.opponent.x -= opp_effective_move_speed * time_scale
+        elif opponent_action_input == 2: 
+            self.opponent.x += opp_effective_move_speed * time_scale
 
         self.player1.x = np.clip(self.player1.x, 0.0, 1.0)
         self.opponent.x = np.clip(self.opponent.x, 0.0, 1.0)
