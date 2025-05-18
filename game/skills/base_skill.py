@@ -20,7 +20,7 @@ class Skill(ABC):
         pass
 
     @abstractmethod
-    def deactivate(self):
+    def deactivate(self, *args, **kwargs): # ⭐️ 修改這裡
         pass
 
     @abstractmethod

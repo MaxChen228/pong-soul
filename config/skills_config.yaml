@@ -25,29 +25,27 @@ long_paddle:
   animation_ms: 300
   # bar_color: [0, 100, 0] # UI related
 
-soul_eater_bug: # Values from SKILL_CONFIGS.py
+soul_eater_bug:
   duration_ms: 8000
-  cooldown_ms: 1000 # This is very short from SKILL_CONFIGS.py, skill internal default is 12000.
-  # bar_color: [150, 50, 200] # UI related
+  cooldown_ms: 12000 # 建議將冷卻時間調整回一個更合理的值，例如 10000 或 12000
+  bar_color: [150, 50, 200]
   bug_image_path: "assets/soul_eater_bug.png"
-  bug_display_scale_factor: 2.0 # SKILL_CONFIGS.py has 2 (int)
+  bug_display_scale_factor: 2.0
 
   sound_activate: "assets/bug_activate.mp3"
   sound_crawl: "assets/bug_crawl.mp3"
   sound_hit_paddle: "assets/bug_hit_paddle.mp3"
   sound_score: "assets/bug_score.mp3"
 
-  base_y_speed: 0.025
-  # y_random_magnitude: 0.008 # Not in SKILL_CONFIGS.py for soul_eater_bug
-  x_random_walk_speed: 0.025 # Not in SKILL_CONFIGS.py for soul_eater_bug (but skill has its own default)
-  target_update_interval_frames: 10
-  goal_seeking_factor: 0.12
-  dodge_factor: 0.12
+  # --- 新增 RL 相關參數 ---
+  rl_model_path: "models/soul_eater_bug_agent.pth" # ⭐️ 您的噬魂蟲 RL 模型路徑
+  # bug_rl_action_type: "discrete_xy_thrust" # ⭐️ (可選) 動作類型說明
+  bug_x_rl_move_speed: 0.03  # ⭐️ (可選) 如果動作是離散推力，X方向每單位動作的速度
+  bug_y_rl_move_speed: 0.03  # ⭐️ (可選) 如果動作是離散推力，Y方向每單位動作的速度
 
-  can_rest: true
-  rest_chance_after_target_update: 0.6
-  min_rest_duration_seconds: 0.1
-  max_rest_duration_seconds: 0.2
-  y_movement_dampening_during_rest: 0.0
-  # x_movement_dampening_during_rest: 0.0 # Not in SKILL_CONFIGS.py for soul_eater_bug
-  small_drift_during_rest_factor: 0.007
+  # --- 保留或調整的參數 ---
+  base_y_speed: 0.015 # ⭐️ 基礎的 Y 軸趨向速度 (可以讓 RL 在此基礎上調整)
+                       #    或者如果 RL 完全控制 Y 軸，則可設為 0 或移除
+
+  # --- 移除或註解掉的舊硬編碼移動參數 ---
+  target_update_interval_frames: 10 # ⭐️ RL 模型可能不需要這個，可以考慮移除
