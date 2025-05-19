@@ -406,6 +406,13 @@ class Renderer:
             # --- 繪製煉獄領域 基礎/脈動 濾鏡 ---
             domain_filter_color_to_apply = None
             if purgatory_visual_params_to_use:
+                if DEBUG_RENDERER: # 假設你有一個 DEBUG_RENDERER 開關
+                    print(f"[DEBUG_RENDERER] View: {view_player_data.get('identifier', 'N/A')}, PurgatoryVPUse: {bool(purgatory_visual_params_to_use)}, AnimPlaying: {is_purgatory_anim_playing}")
+                    if is_purgatory_anim_playing and activation_anim_props:
+                        print(f"    RENDERER AnimProps: is_playing={activation_anim_props.get('is_playing')}, filter={activation_anim_props.get('filter_pulse')}, vignette={activation_anim_props.get('vignette_effect')}")
+                    elif purgatory_visual_params_to_use:
+                        print(f"    RENDERER StaticFilter: {purgatory_visual_params_to_use.get('domain_filter_color_rgba')}")
+
                 if is_purgatory_anim_playing and \
                    activation_anim_props and \
                    activation_anim_props.get("filter_pulse") and \

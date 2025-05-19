@@ -25,6 +25,8 @@ class PurgatoryDomainSkill(Skill):
                 "ball_seek_target_strength": 0.0, "opponent_paddle_slowdown_factor": 1.0,
                 "domain_filter_color_rgba": [30, 0, 50, 100], "ball_aura_color_rgba": [120, 50, 150, 200],
                 "sound_activate": None, "sound_domain_loop": None, "sound_ball_event": None, "sound_deactivate": None,
+                "pixel_flame_effect": {"enabled": False}, # 基本的 pixel_flame_effect 預設
+                "activation_animation": {"enabled": False, "duration_ms": 0} # 基本的 activation_animation 預設
             }
 
         self.duration_ms = int(cfg.get("duration_ms", 7000))
@@ -42,15 +44,26 @@ class PurgatoryDomainSkill(Skill):
         self.sound_ball_event = self._load_sound(cfg.get("sound_ball_event"))
         self.sound_deactivate = self._load_sound(cfg.get("sound_deactivate"))
         self.domain_loop_channel = None
+
+        # 像素火焰效果設定
         self.pixel_flame_config = cfg.get("pixel_flame_effect", {})
         self.flame_particles_enabled = self.pixel_flame_config.get("enabled", False)
-        self.flame_particles = [] # 用於存儲粒子對象或字典的列表
-        self.last_particle_emission_time = 0 # <<< 新增：用於控制粒子發射頻率
+        self.flame_particles = []
+        self.last_particle_emission_time = 0
+
+        # --- 新增：入場動畫相關屬性初始化 ---
+        self.activation_animation_config = cfg.get("activation_animation", {})
+        self.activation_animation_enabled = self.activation_animation_config.get("enabled", False)
+        self.activation_animation_duration_ms = self.activation_animation_config.get("duration_ms", 0)
+        self.is_in_activation_animation = False # 動畫播放狀態
+        self.activation_animation_start_time = 0 # 動畫開始時間
+        # --- 新增結束 ---
 
         if DEBUG_PURGATORY_SKILL and self.flame_particles_enabled:
             print(f"[SKILL_DEBUG][{self.__class__.__name__}] ({self.owner.identifier}) Pixel Flame Effect enabled with config: {self.pixel_flame_config}")
         
-        self.active = False
+        if DEBUG_PURGATORY_SKILL and self.activation_animation_enabled:
+            print(f"[SKILL_DEBUG][{self.__class__.__name__}] ({self.owner.identifier}) Activation Animation enabled. Duration: {self.activation_animation_duration_ms}ms, Config: {self.activation_animation_config}")
 
         self.active = False
         self.activated_time = 0
@@ -58,7 +71,6 @@ class PurgatoryDomainSkill(Skill):
 
         if DEBUG_PURGATORY_SKILL:
             print(f"[SKILL_DEBUG][{self.__class__.__name__}] ({self.owner.identifier}) Initialized. Duration: {self.duration_ms}ms, Cooldown: {self.cooldown_ms}ms")
-
     def _create_flame_particle(self):
         """創建一個新的火焰粒子並返回其屬性字典。"""
         if not self.flame_particles_enabled:
@@ -140,9 +152,10 @@ class PurgatoryDomainSkill(Skill):
         return True
 
     def activate(self):
-        self.flame_particles.clear() # <<< 新增：清除舊粒子
+        self.flame_particles.clear()
         self.last_particle_emission_time = pygame.time.get_ticks()
         current_time = pygame.time.get_ticks()
+
         if self.active:
             if DEBUG_PURGATORY_SKILL: print(f"[SKILL_DEBUG][{self.__class__.__name__}] ({self.owner.identifier}) Activation failed: Already active.")
             return False
@@ -151,7 +164,18 @@ class PurgatoryDomainSkill(Skill):
             return False
 
         self.active = True
-        self.activated_time = current_time
+        self.activated_time = current_time # 技能主要效果的開始時間
+
+        # --- 新增：啟動入場動畫狀態 ---
+        if self.activation_animation_enabled:
+            self.is_in_activation_animation = True
+            self.activation_animation_start_time = current_time # 動畫效果的開始時間
+            if DEBUG_PURGATORY_SKILL:
+                print(f"[SKILL_DEBUG][{self.__class__.__name__}] ({self.owner.identifier}) Activation Animation sequence started at {current_time}.")
+        else:
+            self.is_in_activation_animation = False # 確保如果動畫未啟用，此標誌為 False
+        # --- 新增結束 ---
+        
         if DEBUG_PURGATORY_SKILL: print(f"[SKILL_DEBUG][{self.__class__.__name__}] ({self.owner.identifier}) Activated!")
 
         if self.sound_activate:
@@ -390,7 +414,8 @@ class PurgatoryDomainSkill(Skill):
             
             if ball_hit_paddle:
                 if DEBUG_PURGATORY_SKILL:
-                    print(f"[SKILL_DEBUG][{self.__class__.__name__}] Domain: Ball hit TARGET PADDLE ({target_player_state.identifier}).")
+                    # print(f"[SKILL_DEBUG][{self.__class__.__name__}] Domain: Ball hit TARGET PADDLE ({target_player_state.identifier}).")
+                    pass
                 
                 # 板子擊球後，球以更不可預測的方式反彈
                 # Y方向基本反彈
@@ -481,30 +506,131 @@ class PurgatoryDomainSkill(Skill):
             return min(1.0, ratio)
 
     def get_visual_params(self):
-        if not self.active: # 並且可以加上 and not self.flame_particles 如果希望殘留粒子消失後才算完全 false
-            return {
-                "type": "purgatory_domain",
-                "active_effects": False,
-                "pixel_flames_enabled": False, # 明確告知不啟用火焰
-                "pixel_flames_data": {"config": self.pixel_flame_config, "particles": []} # 提供空數據結構
-            }
-
+        """
+        返回一個包含此技能當前視覺效果所需參數的字典。
+        如果技能沒有額外的視覺效果，則返回空字典。
+        這些參數將由 Renderer 用來繪製效果。
+        """
+        # 基本參數，包含技能類型和基礎效果是否啟用
         visual_params = {
             "type": "purgatory_domain",
-            "active_effects": True,
+            "active_effects": self.active or bool(self.flame_particles), # 如果技能本身啟用或還有火焰粒子，則認為有效果
             "domain_filter_color_rgba": self.domain_filter_color_rgba,
             "ball_aura_color_rgba": self.ball_aura_color_rgba,
-            "pixel_flames_enabled": self.flame_particles_enabled, # 告知渲染器是否啟用
-            "pixel_flames_data": { # 傳遞粒子效果的靜態配置和動態粒子列表
+            "pixel_flames_enabled": self.flame_particles_enabled,
+            "pixel_flames_data": {
                 "config": self.pixel_flame_config, # 傳遞火焰效果的靜態配置
-                "particles": self.flame_particles # 傳遞當前所有活動粒子的數據
+                "particles": list(self.flame_particles) # 傳遞當前所有活動粒子的數據副本
+            },
+            "activation_animation_props": { # 預先準備好動畫屬性字典
+                "is_playing": False,
+                "elapsed_ms": 0,
+                "duration_ms": 0,
+                "filter_pulse": None,
+                "vignette_effect": None
             }
         }
-        # 如果技能未激活，但仍有一些殘留效果（例如火焰熄滅過程），這裡可以調整 active_effects
-        # 但對於像素火焰，通常是技能激活時才有
-        if not self.active and not self.flame_particles: # 如果技能已不活動且沒有粒子了
-             visual_params["active_effects"] = False # 可以考慮更精細的控制
-        
+
+        # 處理入場動畫
+        if self.activation_animation_enabled and self.is_in_activation_animation:
+            current_time_ms = pygame.time.get_ticks()
+            elapsed_anim_time = current_time_ms - self.activation_animation_start_time
+            is_still_playing_anim = elapsed_anim_time < self.activation_animation_duration_ms
+
+            activation_props = visual_params["activation_animation_props"] # 獲取預備好的字典引用
+            activation_props["is_playing"] = is_still_playing_anim
+            activation_props["elapsed_ms"] = elapsed_anim_time
+            activation_props["duration_ms"] = self.activation_animation_duration_ms
+
+            if is_still_playing_anim:
+                # --- 計算濾鏡脈衝效果 ---
+                pulse_config = self.activation_animation_config.get("filter_pulse", {})
+                if pulse_config.get("enabled", False):
+                    base_filter_color_cfg = self.domain_filter_color_rgba # 基礎顏色從技能主設定取
+                    base_alpha = base_filter_color_cfg[3] if len(base_filter_color_cfg) == 4 else 70
+                    
+                    frequency_hz = pulse_config.get("frequency_hz", 2.0)
+                    alpha_min_factor = pulse_config.get("alpha_min_factor", 0.5)
+                    alpha_max_factor = pulse_config.get("alpha_max_factor", 1.0)
+
+                    # 正弦波計算 alpha
+                    # (elapsed_anim_time / 1000.0) 是秒
+                    # sin_wave = math.sin(2 * math.pi * frequency_hz * (elapsed_anim_time / 1000.0))
+                    # 為了從0開始並達到峰值，可以使用 (sin(t-pi/2)+1)/2 這樣的形式，或者直接調整相位
+                    # 這裡使用一個簡單的循環往復 sin，範圍從 -1 到 1
+                    oscillation = math.sin(elapsed_anim_time / (1000.0 / frequency_hz / (2 * math.pi)))
+                    # 將 -1 到 1 映射到 0 到 1
+                    normalized_oscillation = (oscillation + 1) / 2.0
+                    # 再將 0 到 1 映射到 alpha_min_factor 到 alpha_max_factor
+                    current_alpha_factor = alpha_min_factor + (alpha_max_factor - alpha_min_factor) * normalized_oscillation
+                    current_alpha = int(base_alpha * current_alpha_factor)
+                    current_alpha = max(0, min(255, current_alpha)) # 確保在有效範圍
+
+                    activation_props["filter_pulse"] = {
+                        "enabled": True,
+                        "current_alpha": current_alpha,
+                        "base_color_rgb": base_filter_color_cfg[:3] # 傳遞基礎 RGB 給渲染器
+                    }
+                else:
+                    activation_props["filter_pulse"] = {"enabled": False}
+
+                # --- 計算邊緣暈影效果 ---
+                vignette_config = self.activation_animation_config.get("vignette_effect", {})
+                if vignette_config.get("enabled", False):
+                    anim_progress_ratio = min(1.0, elapsed_anim_time / self.activation_animation_duration_ms if self.activation_animation_duration_ms > 0 else 1.0)
+                    
+                    color_start_rgba = tuple(vignette_config.get("color_start_rgba", [0,0,0,0]))
+                    color_end_rgba = tuple(vignette_config.get("color_end_rgba", [0,0,0,0]))
+                    
+                    thickness_start_factor = vignette_config.get("thickness_start_factor", 0.0)
+                    thickness_peak_factor = vignette_config.get("thickness_peak_factor", 0.1)
+                    thickness_end_factor = vignette_config.get("thickness_end_factor", 0.05)
+                    peak_time_ratio = vignette_config.get("peak_time_ratio", 0.5) # 在動畫總時長的哪個比例達到峰值
+
+                    current_vignette_color_rgba = list(color_start_rgba)
+                    current_vignette_thickness_factor = 0.0
+
+                    if anim_progress_ratio <= peak_time_ratio:
+                        # 從 start 到 peak
+                        ratio_to_peak = anim_progress_ratio / peak_time_ratio if peak_time_ratio > 0 else 1.0
+                        for i in range(4):
+                            current_vignette_color_rgba[i] = int(color_start_rgba[i] + (color_end_rgba[i] - color_start_rgba[i]) * ratio_to_peak) # 線性插值到最終顏色的一部分
+                        current_vignette_thickness_factor = thickness_start_factor + (thickness_peak_factor - thickness_start_factor) * ratio_to_peak
+                    else:
+                        # 從 peak 到 end
+                        ratio_from_peak_to_end = (anim_progress_ratio - peak_time_ratio) / (1.0 - peak_time_ratio) if (1.0 - peak_time_ratio) > 0 else 1.0
+                        # 顏色保持在 peak_time_ratio 時計算出的顏色，或者繼續插值到 color_end_rgba
+                        # 為了簡化，假設顏色在 peak_time_ratio 後就固定為 color_end_rgba (或者可以再插值)
+                        # 這裡我們讓顏色從 start -> end 線性變化，厚度是 start -> peak -> end
+                        for i in range(4): # 顏色全程線性插值
+                            current_vignette_color_rgba[i] = int(color_start_rgba[i] + (color_end_rgba[i] - color_start_rgba[i]) * anim_progress_ratio)
+
+                        current_vignette_thickness_factor = thickness_peak_factor + (thickness_end_factor - thickness_peak_factor) * ratio_from_peak_to_end
+                    
+                    current_vignette_color_rgba = tuple(max(0, min(255, int(c))) for c in current_vignette_color_rgba)
+
+
+                    activation_props["vignette_effect"] = {
+                        "enabled": True,
+                        "current_color_rgba": current_vignette_color_rgba,
+                        "current_thickness_factor": current_vignette_thickness_factor
+                    }
+                else:
+                    activation_props["vignette_effect"] = {"enabled": False}
+            else: # 動畫時間已過，但 is_in_activation_animation 仍然為 True (直到技能停用)
+                activation_props["filter_pulse"] = {"enabled": False, "current_alpha": 0} # 確保沒有殘留
+                activation_props["vignette_effect"] = {"enabled": False, "current_thickness_factor": 0}
+
+        # 如果技能已不活躍且沒有火焰粒子了 (這個判斷其實和 visual_params["active_effects"] 重複，可以簡化)
+        if not self.active and not self.flame_particles:
+             visual_params["active_effects"] = False
+
+        if DEBUG_PURGATORY_SKILL and visual_params["activation_animation_props"]["is_playing"]:
+            print(f"[SKILL_DEBUG][Purgatory.get_visual_params] Anim Playing: Yes, Elapsed: {visual_params['activation_animation_props']['elapsed_ms']:.0f}ms")
+            print(f"    Filter Pulse: {visual_params['activation_animation_props'].get('filter_pulse')}")
+            print(f"    Vignette: {visual_params['activation_animation_props'].get('vignette_effect')}")
+            # pass
+
         return visual_params
 
     def render(self, surface):
