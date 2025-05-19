@@ -84,7 +84,30 @@ purgatory_domain:
     # 粒子擴散角度（相對於球的移動反方向 +/- 這個角度）
     spread_angle_deg: 45
   # 音效路徑 (佔位符，實際路徑需要您提供或後續添加)
+    # <<< 新增開始：入場動畫參數 >>>
+  activation_animation:
+    enabled: true
+    duration_ms: 3000 # 動畫總時長 3 秒
+
+    filter_pulse: # 領域顏色濾鏡脈動效果
+      enabled: true
+      frequency_hz: 2.5 # 每秒脈動約 2.5 次
+      alpha_min_factor: 0.5 # 脈動時 Alpha 是基礎 domain_filter_color_rgba 中 Alpha 的最小倍數
+      alpha_max_factor: 1.2 # 脈動時 Alpha 是基礎 domain_filter_color_rgba 中 Alpha 的最大倍數 (可略超過原 Alpha 以增強閃爍)
+
+    vignette_effect: # 屏幕邊緣變暗/變色效果
+      enabled: true
+      # 暈影顏色從幾乎透明的深紅色開始，逐漸變得更深更不透明
+      color_start_rgba: [100, 0, 0, 50]  # 動畫開始時的暈影顏色
+      color_end_rgba: [80, 0, 0, 180]    # 動畫結束時的暈影顏色 (疊加在主濾鏡上)
+      # 暈影厚度從0逐漸增加到最大，然後可能再縮回或保持
+      thickness_start_factor: 0.0 # 相對於屏幕/視口短邊的比例
+      thickness_peak_factor: 0.2  # 動畫中途達到的最大厚度比例
+      thickness_end_factor: 0.15  # 動畫結束時的厚度比例 (可以不為0，與主濾鏡融合)
+      peak_time_ratio: 0.6      # 最大厚度在動畫總時長的哪個比例達到 (0.0 到 1.0)
+  # <<< 新增結束：入場動畫參數 >>>
+
   sound_activate: "assets/sfx/purgatory_activate.mp3"
-  sound_domain_loop: "assets/sfx/purgatory_activate.mp3" # 領域持續期間的背景音效
+  sound_domain_loop: "assets/sfx/purgatory_domain_loop.mp3" # 領域持續期間的背景音效
   sound_ball_event: "assets/sfx/purgatory_activate.mp3" # 球在領域內特殊變向或攻擊時的音效
-  sound_deactivate: "assets/sfx/purgatory_activate.mp3"
+  sound_deactivate: "assets/sfx/purgatory_deactivate.mp3"

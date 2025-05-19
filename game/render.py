@@ -365,123 +365,168 @@ class Renderer:
             ga_width_scaled = game_render_area_on_target.width
             ga_height_scaled = game_render_area_on_target.height
 
+            # 假設 DEBUG_RENDERER 是在類或全局定義的，如果沒有，可以暫時註釋掉相關的 if DEBUG_RENDERER 塊
+            # DEBUG_RENDERER = True 
+
             self._draw_walls(target_surface_for_view, game_render_area_on_target)
 
-            # <<< 新增開始：煉獄領域濾鏡效果 >>>
-            # 檢查視角擁有者或對手是否啟用了煉獄領域
-            # 這裡的邏輯是，如果任何一方的煉獄領域技能是 active，就在當前視角應用濾鏡
+            # --- 煉獄領域 效果判斷 ---
             skill_data_view_player = view_player_data.get("skill_data")
             skill_data_opponent = opponent_data_for_this_view.get("skill_data")
-            domain_filter_color_to_apply = None
             
-            # 優先檢查當前視角玩家是否發動了煉獄領域
+            purgatory_visual_params_to_use = None
+            activation_anim_props = None
+            is_purgatory_anim_playing = False
+
+            # 檢查當前視角玩家的煉獄領域狀態
             if skill_data_view_player and \
                skill_data_view_player.get("visual_params", {}).get("type") == "purgatory_domain" and \
                skill_data_view_player.get("visual_params", {}).get("active_effects", False):
-                domain_filter_color_to_apply = skill_data_view_player["visual_params"].get("domain_filter_color_rgba")
-            # 其次檢查對手是否發動了煉獄領域 (如果設計為雙方都能感知到)
-            elif skill_data_opponent and \
-                 skill_data_opponent.get("visual_params", {}).get("type") == "purgatory_domain" and \
-                 skill_data_opponent.get("visual_params", {}).get("active_effects", False):
-                domain_filter_color_to_apply = skill_data_opponent["visual_params"].get("domain_filter_color_rgba")
+                purgatory_visual_params_to_use = skill_data_view_player["visual_params"]
+                anim_props = purgatory_visual_params_to_use.get("activation_animation_props")
+                if anim_props and anim_props.get("is_playing"):
+                    activation_anim_props = anim_props
+                    is_purgatory_anim_playing = True
+            
+            # 如果當前視角玩家未激活煉獄領域，或其動畫已結束，檢查對手是否激活了影響全場的煉獄領域動畫
+            # (這個邏輯假設如果一方開了煉獄領域，雙方都會看到動畫效果)
+            if not is_purgatory_anim_playing and skill_data_opponent and \
+               skill_data_opponent.get("visual_params", {}).get("type") == "purgatory_domain" and \
+               skill_data_opponent.get("visual_params", {}).get("active_effects", False):
+                opponent_visual_params = skill_data_opponent["visual_params"]
+                opponent_anim_props = opponent_visual_params.get("activation_animation_props")
+                if opponent_anim_props and opponent_anim_props.get("is_playing"):
+                    purgatory_visual_params_to_use = opponent_visual_params # 使用對手的動畫參數
+                    activation_anim_props = opponent_anim_props
+                    is_purgatory_anim_playing = True
+                elif not purgatory_visual_params_to_use : # 如果自己沒開，對手也沒動畫，但對手技能是激活的，則用對手的靜態參數
+                     purgatory_visual_params_to_use = opponent_visual_params
 
+
+            # --- 繪製煉獄領域 基礎/脈動 濾鏡 ---
+            domain_filter_color_to_apply = None
+            if purgatory_visual_params_to_use:
+                if is_purgatory_anim_playing and \
+                   activation_anim_props and \
+                   activation_anim_props.get("filter_pulse") and \
+                   activation_anim_props["filter_pulse"].get("current_alpha") is not None:
+                    
+                    pulse_params = activation_anim_props["filter_pulse"]
+                    # 獲取基礎RGB顏色，優先從動畫參數，否則從技能主配置
+                    base_rgb_tuple = pulse_params.get("base_color_rgb")
+                    if not base_rgb_tuple: # 從主技能配置獲取
+                        base_filter_color_cfg = purgatory_visual_params_to_use.get("domain_filter_color_rgba", (0,0,0,0))
+                        base_rgb_tuple = base_filter_color_cfg[:3]
+                    
+                    current_alpha = pulse_params["current_alpha"]
+                    domain_filter_color_to_apply = (*base_rgb_tuple, current_alpha)
+                else: # 動畫未播放或無脈動參數，使用技能基礎的靜態濾鏡
+                    domain_filter_color_to_apply = purgatory_visual_params_to_use.get("domain_filter_color_rgba")
 
             if domain_filter_color_to_apply:
-                if isinstance(domain_filter_color_to_apply, (list, tuple)) and len(domain_filter_color_to_apply) == 4: # 必須是 RGBA
-                    filter_surface = pygame.Surface((ga_width_scaled, ga_height_scaled), pygame.SRCALPHA)
-                    filter_surface.fill(domain_filter_color_to_apply)
-                    target_surface_for_view.blit(filter_surface, (ga_left, ga_top))
-                    # 您可以在此處加入 DEBUG_RENDERER 判斷來印出除錯訊息
-                    # if DEBUG_RENDERER: 
-                    #     print(f"[DEBUG_RENDER_EFFECTS] Applied Purgatory Domain filter: {domain_filter_color_to_apply} to area {game_render_area_on_target}")
-                # elif DEBUG_RENDERER:
-                #     print(f"[DEBUG_RENDER_EFFECTS] Purgatory Domain filter color is invalid (not RGBA): {domain_filter_color_to_apply}")
-            # <<< 新增結束：煉獄領域濾鏡效果 >>>
+                if isinstance(domain_filter_color_to_apply, (list, tuple)) and len(domain_filter_color_to_apply) == 4:
+                    if domain_filter_color_to_apply[3] > 0: # 僅當 Alpha 大於 0 時繪製
+                        filter_surface = pygame.Surface((ga_width_scaled, ga_height_scaled), pygame.SRCALPHA)
+                        filter_surface.fill(domain_filter_color_to_apply)
+                        target_surface_for_view.blit(filter_surface, (ga_left, ga_top))
+                        # if DEBUG_RENDERER: print(f"Applied Purgatory Domain filter: {domain_filter_color_to_apply} (Anim playing: {is_purgatory_anim_playing})")
 
-            # --- 技能視覺效果渲染 (例如 SlowMo 的時鐘等，確保在濾鏡之上) ---
-            # 繪製當前視角玩家的非全局濾鏡類技能效果
+            # --- 繪製煉獄領域入場動畫 - 邊緣暈影效果 ---
+            if is_purgatory_anim_playing and activation_anim_props:
+                vignette_effect_params = activation_anim_props.get("vignette_effect")
+                if vignette_effect_params and \
+                   vignette_effect_params.get("current_color_rgba") and \
+                   vignette_effect_params.get("current_thickness_factor", 0) > 0:
+                    
+                    v_color = vignette_effect_params["current_color_rgba"]
+                    v_thickness_factor = vignette_effect_params["current_thickness_factor"]
+                    
+                    short_side = min(ga_width_scaled, ga_height_scaled)
+                    v_thickness_px = int(short_side * v_thickness_factor)
+
+                    if v_thickness_px > 0 and len(v_color) == 4 and v_color[3] > 0: # 有厚度且透明度大於0
+                        # 創建一個獨立的 Surface 來繪製暈影，然後 blit 到主目標上
+                        # 這樣可以確保暈影的透明度正確應用
+                        vignette_layer_surf = pygame.Surface((ga_width_scaled, ga_height_scaled), pygame.SRCALPHA)
+                        vignette_layer_surf.fill((0,0,0,0)) # 先填充完全透明
+
+                        # 上邊緣
+                        pygame.draw.rect(vignette_layer_surf, v_color, (0, 0, ga_width_scaled, v_thickness_px))
+                        # 下邊緣
+                        pygame.draw.rect(vignette_layer_surf, v_color, (0, ga_height_scaled - v_thickness_px, ga_width_scaled, v_thickness_px))
+                        # 左邊緣 (注意Y座標和高度，避免與上下邊緣重疊繪製區域的角部)
+                        pygame.draw.rect(vignette_layer_surf, v_color, (0, v_thickness_px, v_thickness_px, ga_height_scaled - 2 * v_thickness_px))
+                        # 右邊緣
+                        pygame.draw.rect(vignette_layer_surf, v_color, (ga_width_scaled - v_thickness_px, v_thickness_px, v_thickness_px, ga_height_scaled - 2 * v_thickness_px))
+                        
+                        target_surface_for_view.blit(vignette_layer_surf, (ga_left, ga_top))
+                        # if DEBUG_RENDERER: print(f"Applied Purgatory Vignette: Color {v_color}, ThicknessPx {v_thickness_px}")
+
+            # --- 其他技能的非全局濾鏡類視覺效果渲染 (例如 SlowMo 的時鐘等) ---
             if skill_data_view_player:
-                skill_visual_params = skill_data_view_player.get("visual_params")
-                if skill_visual_params and skill_visual_params.get("active_effects", False):
-                    skill_type = skill_visual_params.get("type")
+                view_player_visual_params = skill_data_view_player.get("visual_params")
+                if view_player_visual_params and view_player_visual_params.get("active_effects", False):
+                    skill_type = view_player_visual_params.get("type")
                     if skill_type == "slowmo":
-                        self._draw_slowmo_visuals(target_surface_for_view, skill_visual_params, game_render_area_on_target, view_player_data)
-                    # elif skill_type == "purgatory_domain":
-                        # Purgatory Domain 的球體光環等其他效果會在球體繪製時處理，濾鏡已處理
-                        pass 
-                    # ... 可以添加其他技能的非濾鏡類特效判斷 ...
+                        self._draw_slowmo_visuals(target_surface_for_view, view_player_visual_params, game_render_area_on_target, view_player_data)
             
-            # 繪製此視角的對手的非全局濾鏡類技能效果 (如果需要且設計如此)
-            # 例如，如果對手的 SlowMo 技能的時鐘效果也需要在這個視角看到
-            # (這部分比較複雜，取決於設計，目前 _draw_slowmo_visuals 主要基於 view_player_data)
+            # --- 球拍繪製 ---
+            # ... (球拍繪製邏輯與您上一版本相同, 此處省略以保持簡潔) ...
+            vp_paddle_norm_x = view_player_data["x_norm"]
+            vp_paddle_center_x_scaled = ga_left + int(vp_paddle_norm_x * ga_width_scaled)
+            vp_paddle_width_scaled = int(view_player_data["paddle_width_norm"] * self.logical_game_area_size * s)
+            vp_paddle_height_scaled = int(self.logical_paddle_height_px * s)
+            vp_paddle_color = view_player_data.get("paddle_color", Style.PLAYER_COLOR)
+            scaled_paddle_border_radius = max(1, int(3 * s))
+            pygame.draw.rect(target_surface_for_view, vp_paddle_color,
+                (vp_paddle_center_x_scaled - vp_paddle_width_scaled // 2,
+                ga_top + ga_height_scaled - vp_paddle_height_scaled,
+                vp_paddle_width_scaled, vp_paddle_height_scaled), border_radius=scaled_paddle_border_radius)
 
+            opp_paddle_norm_x = opponent_data_for_this_view["x_norm"]
+            opp_paddle_center_x_scaled = ga_left + int(opp_paddle_norm_x * ga_width_scaled)
+            opp_paddle_width_scaled = int(opponent_data_for_this_view["paddle_width_norm"] * self.logical_game_area_size * s)
+            opp_paddle_height_scaled = int(self.logical_paddle_height_px * s)
+            opp_paddle_color = opponent_data_for_this_view.get("paddle_color", Style.AI_COLOR)
+            pygame.draw.rect(target_surface_for_view, opp_paddle_color,
+                (opp_paddle_center_x_scaled - opp_paddle_width_scaled // 2,
+                ga_top,
+                opp_paddle_width_scaled, opp_paddle_height_scaled), border_radius=scaled_paddle_border_radius)
 
-            try:
-                ball_norm_x = ball_data["x_norm"]
-                ball_norm_y_raw = ball_data["y_norm"]
-                ball_spin = ball_data["spin"]
-                ball_image_key = ball_data.get("image_key", "default")
-
-                ball_norm_y_for_view = 1.0 - ball_norm_y_raw if is_top_player_perspective else ball_norm_y_raw
-
-                ball_center_x_scaled = ga_left + int(ball_norm_x * ga_width_scaled)
-                ball_center_y_scaled = ga_top + int(ball_norm_y_for_view * ga_height_scaled)
-
-                # --- 球拍繪製 ---
-                vp_paddle_norm_x = view_player_data["x_norm"]
-                vp_paddle_center_x_scaled = ga_left + int(vp_paddle_norm_x * ga_width_scaled)
-                vp_paddle_width_scaled = int(view_player_data["paddle_width_norm"] * self.logical_game_area_size * s)
-                vp_paddle_height_scaled = int(self.logical_paddle_height_px * s)
-                vp_paddle_color = view_player_data.get("paddle_color", Style.PLAYER_COLOR)
-                scaled_paddle_border_radius = max(1, int(3 * s))
-                pygame.draw.rect(target_surface_for_view, vp_paddle_color,
-                    (vp_paddle_center_x_scaled - vp_paddle_width_scaled // 2,
-                    ga_top + ga_height_scaled - vp_paddle_height_scaled,
-                    vp_paddle_width_scaled, vp_paddle_height_scaled), border_radius=scaled_paddle_border_radius)
-
-                opp_paddle_norm_x = opponent_data_for_this_view["x_norm"]
-                opp_paddle_center_x_scaled = ga_left + int(opp_paddle_norm_x * ga_width_scaled)
-                opp_paddle_width_scaled = int(opponent_data_for_this_view["paddle_width_norm"] * self.logical_game_area_size * s)
-                opp_paddle_height_scaled = int(self.logical_paddle_height_px * s)
-                opp_paddle_color = opponent_data_for_this_view.get("paddle_color", Style.AI_COLOR)
-                pygame.draw.rect(target_surface_for_view, opp_paddle_color,
-                    (opp_paddle_center_x_scaled - opp_paddle_width_scaled // 2,
-                    ga_top,
-                    opp_paddle_width_scaled, opp_paddle_height_scaled), border_radius=scaled_paddle_border_radius)
-
-                # --- 拖尾繪製 ---
-                if trail_data:
-                    scaled_trail_radius = max(1, int(self.logical_ball_radius_px * 0.4 * s))
-                    for i, (tx_norm, ty_norm_raw) in enumerate(trail_data):
-                        trail_ty_norm_for_view = 1.0 - ty_norm_raw if is_top_player_perspective else ty_norm_raw
-                        fade = int(200 * (i + 1) / len(trail_data))
-                        base_ball_color_rgb = Style.BALL_COLOR[:3] if isinstance(Style.BALL_COLOR, tuple) and len(Style.BALL_COLOR) >=3 else (255,255,255)
-                        trail_color_with_alpha = (*base_ball_color_rgb, fade)
+            # --- 拖尾繪製 ---
+            if trail_data:
+                # ... (拖尾繪製邏輯與您上一版本相同, 此處省略) ...
+                scaled_trail_radius = max(1, int(self.logical_ball_radius_px * 0.4 * s))
+                for i, (tx_norm, ty_norm_raw) in enumerate(trail_data):
+                    trail_ty_norm_for_view = 1.0 - ty_norm_raw if is_top_player_perspective else ty_norm_raw
+                    fade = int(200 * (i + 1) / len(trail_data))
+                    base_ball_color_rgb = Style.BALL_COLOR[:3] if isinstance(Style.BALL_COLOR, tuple) and len(Style.BALL_COLOR) >=3 else (255,255,255)
+                    trail_color_with_alpha = (*base_ball_color_rgb, fade)
+                    if scaled_trail_radius > 0 :
                         temp_surf = pygame.Surface((scaled_trail_radius * 2, scaled_trail_radius * 2), pygame.SRCALPHA)
                         pygame.draw.circle(temp_surf, trail_color_with_alpha, (scaled_trail_radius, scaled_trail_radius), scaled_trail_radius)
                         trail_x_scaled = ga_left + int(tx_norm * ga_width_scaled)
                         trail_y_scaled = ga_top + int(trail_ty_norm_for_view * ga_height_scaled)
                         target_surface_for_view.blit(temp_surf, (trail_x_scaled - scaled_trail_radius, trail_y_scaled - scaled_trail_radius))
+            
+            try: # 球體相關繪製
+                ball_norm_x = ball_data["x_norm"]
+                ball_norm_y_raw = ball_data["y_norm"]
+                # ... (獲取球體其他數據 ball_spin, ball_image_key 等與上一版本相同) ...
+                ball_spin = ball_data["spin"]
+                ball_image_key = ball_data.get("image_key", "default")
+                ball_norm_y_for_view = 1.0 - ball_norm_y_raw if is_top_player_perspective else ball_norm_y_raw
+                ball_center_x_scaled = ga_left + int(ball_norm_x * ga_width_scaled)
+                ball_center_y_scaled = ga_top + int(ball_norm_y_for_view * ga_height_scaled)
                 
-                # --- 球體光芒與圖像 (包含煉獄領域的球體光環處理) ---
-                # 檢查是否有技能覆寫了球體的主要視覺或添加了光環
-                active_skill_visual_params_for_ball = None
+                # --- 繪製煉獄領域的球體光環 (如果啟用) ---
                 ball_aura_color = None
+                if purgatory_visual_params_to_use: # 使用之前確定的煉獄領域參數來源
+                    ball_aura_color = purgatory_visual_params_to_use.get("ball_aura_color_rgba")
 
-                # 檢查當前視角玩家的技能是否影響球體 (例如 Purgatory 的光環)
-                if skill_data_view_player and \
-                   skill_data_view_player.get("visual_params", {}).get("type") == "purgatory_domain" and \
-                   skill_data_view_player.get("visual_params", {}).get("active_effects", False):
-                    ball_aura_color = skill_data_view_player["visual_params"].get("ball_aura_color_rgba")
-                # 或檢查對手的技能是否影響球體 (如果設計是全場效果)
-                elif skill_data_opponent and \
-                     skill_data_opponent.get("visual_params", {}).get("type") == "purgatory_domain" and \
-                     skill_data_opponent.get("visual_params", {}).get("active_effects", False):
-                    ball_aura_color = skill_data_opponent["visual_params"].get("ball_aura_color_rgba")
-
-                # 1. 繪製技能指定的光環 (例如煉獄領域的球體光環)
-                if ball_aura_color and isinstance(ball_aura_color, (list, tuple)) and len(ball_aura_color) == 4:
-                    aura_radius_factor = 1.3 # 光環比球體稍大
+                if ball_aura_color and isinstance(ball_aura_color, (list, tuple)) and len(ball_aura_color) == 4 and ball_aura_color[3] > 0:
+                    # ... (球體光環繪製邏輯與您上一版本相同, 此處省略) ...
+                    aura_radius_factor = 1.3 
                     aura_radius_px = int(self.scaled_ball_diameter_px / 2 * aura_radius_factor)
                     if aura_radius_px > 0:
                         aura_surface_size = max(1, aura_radius_px * 2)
@@ -489,13 +534,10 @@ class Renderer:
                         pygame.draw.circle(aura_surface, ball_aura_color, (aura_radius_px, aura_radius_px), aura_radius_px)
                         aura_rect = aura_surface.get_rect(center=(ball_center_x_scaled, ball_center_y_scaled))
                         target_surface_for_view.blit(aura_surface, aura_rect)
-                        # if DEBUG_RENDERER:
-                        #    print(f"[DEBUG_RENDER_EFFECTS] Applied Purgatory Ball Aura: {ball_aura_color}")
                 
-                # 2. 繪製常規的旋轉光芒 (如果煉獄光環未完全取代它)
-                #    可以設計成煉獄光環存在時，不顯示常規旋轉光芒，或兩者疊加
-                #    目前邏輯是兩者都可能繪製
+                # --- 繪製常規的旋轉光芒 ---
                 if abs(ball_spin) > self.glow_spin_threshold:
+                    # ... (常規旋轉光芒繪製邏輯與您上一版本相同, 此處省略) ...
                     normalized_spin_effect = min(abs(ball_spin) * self.glow_spin_sensitivity, 1.0)
                     if normalized_spin_effect > 0:
                         scaled_ball_radius_px = self.scaled_ball_diameter_px // 2
@@ -507,7 +549,6 @@ class Renderer:
                                                      (self.glow_max_outer_alpha_factor - self.glow_min_outer_alpha_factor) * normalized_spin_effect
                         current_outer_alpha_factor = max(0.0, min(1.0, current_outer_alpha_factor))
                         base_glow_rgb = self.glow_base_color_rgb
-
                         if self.glow_layers > 0:
                             for i in range(self.glow_layers):
                                 layer_ratio = i / (self.glow_layers - 1) if self.glow_layers > 1 else 0
@@ -518,7 +559,6 @@ class Renderer:
                                 layer_radius_px = int(scaled_ball_radius_px * current_layer_radius_factor)
                                 layer_alpha = int(current_inner_alpha * (1.0 - (1.0 - current_outer_alpha_factor) * layer_ratio))
                                 layer_alpha = max(0, min(255, layer_alpha))
-
                                 if layer_alpha > 5 and layer_radius_px > scaled_ball_radius_px:
                                     glow_layer_surface_size = max(1, layer_radius_px * 2)
                                     glow_layer_surface = pygame.Surface((glow_layer_surface_size, glow_layer_surface_size), pygame.SRCALPHA)
@@ -527,68 +567,40 @@ class Renderer:
                                     glow_layer_rect = glow_layer_surface.get_rect(center=(ball_center_x_scaled, ball_center_y_scaled))
                                     target_surface_for_view.blit(glow_layer_surface, glow_layer_rect)
                 
-                # 3. 繪製球體本身 (圖像)
+                # --- 繪製球體本身 (圖像) ---
                 original_ball_surf = Renderer._original_ball_visuals.get(ball_image_key, Renderer._original_ball_visuals["default"])
+                # ... (球體圖像繪製邏輯與您上一版本相同, 此處省略) ...
                 current_ball_render_image_scaled = pygame.transform.smoothscale(original_ball_surf, (self.scaled_ball_diameter_px, self.scaled_ball_diameter_px))
                 rotated_ball = pygame.transform.rotate(current_ball_render_image_scaled, self.ball_angle)
                 ball_rect = rotated_ball.get_rect(center=(ball_center_x_scaled, ball_center_y_scaled))
                 target_surface_for_view.blit(rotated_ball, ball_rect)
 
-                # <<< 新增開始：像素火焰粒子效果繪製 >>>
-                # 檢查是哪個玩家的煉獄領域技能處於活動狀態，並獲取其粒子數據
-                # (目前的設計是，如果任一玩家的煉獄領域啟用，其特效都會被渲染)
-                purgatory_skill_params_for_flames = None
-                if skill_data_view_player and \
-                   skill_data_view_player.get("visual_params", {}).get("type") == "purgatory_domain" and \
-                   skill_data_view_player.get("visual_params", {}).get("active_effects", False) and \
-                   skill_data_view_player.get("visual_params", {}).get("pixel_flames_enabled", False):
-                    purgatory_skill_params_for_flames = skill_data_view_player["visual_params"].get("pixel_flames_data")
-                elif skill_data_opponent and \
-                     skill_data_opponent.get("visual_params", {}).get("type") == "purgatory_domain" and \
-                     skill_data_opponent.get("visual_params", {}).get("active_effects", False) and \
-                     skill_data_opponent.get("visual_params", {}).get("pixel_flames_enabled", False):
-                    purgatory_skill_params_for_flames = skill_data_opponent["visual_params"].get("pixel_flames_data")
+                # --- 像素火焰粒子效果繪製 ---
+                pixel_flames_data_to_render = None
+                if purgatory_visual_params_to_use and purgatory_visual_params_to_use.get("pixel_flames_enabled", False):
+                     pixel_flames_data_to_render = purgatory_visual_params_to_use.get("pixel_flames_data")
 
-                if purgatory_skill_params_for_flames:
-                    flame_particles = purgatory_skill_params_for_flames.get("particles", [])
-                    # flame_config = purgatory_skill_params_for_flames.get("config", {}) # 如果需要配置信息
-
+                if pixel_flames_data_to_render:
+                    flame_particles = pixel_flames_data_to_render.get("particles", [])
+                    # flame_config = pixel_flames_data_to_render.get("config", {}) # 如果渲染時需要配置信息
                     for particle in flame_particles:
+                        # ... (像素火焰粒子繪製邏輯與您上一版本相同, 此處省略) ...
                         particle_x_norm = particle.get('x_norm', 0.5)
                         particle_y_norm_raw = particle.get('y_norm', 0.5)
-                        
-                        # 如果是頂部玩家視角，Y座標需要翻轉
                         particle_y_norm_for_view = 1.0 - particle_y_norm_raw if is_top_player_perspective else particle_y_norm_raw
-                        
                         particle_center_x_scaled = ga_left + int(particle_x_norm * ga_width_scaled)
                         particle_center_y_scaled = ga_top + int(particle_y_norm_for_view * ga_height_scaled)
-                        
-                        particle_color_rgba = particle.get('current_color_rgba', (255,0,0,255)) # 默認為紅色
-                        particle_logical_size_px = particle.get('current_size_px', 3) # 從技能傳來的邏輯像素大小
-                        
-                        # 將邏輯尺寸縮放到實際螢幕尺寸
-                        particle_render_size_px = max(1, int(particle_logical_size_px * s)) # s 是 self.game_content_scale_factor
-                        
-                        if particle_color_rgba[3] > 0: # Alpha > 0 才繪製
-                            # 計算矩形左上角座標
-                            particle_rect_x = particle_center_x_scaled - particle_render_size_px // 2
-                            particle_rect_y = particle_center_y_scaled - particle_render_size_px // 2
-                            
-                            # 為了更好的"像素感"，可以直接用 fill 一個小矩形
-                            # pygame.draw.rect(target_surface_for_view, particle_color_rgba,
-                            #                  (particle_rect_x, particle_rect_y, particle_render_size_px, particle_render_size_px))
-                            
-                            # 或者使用一個小的 Surface 來繪製，這樣可以利用 SRALPHA (如果顏色本身帶 alpha)
-                            # 且如果粒子顏色不透明，直接用 draw.rect 效率可能更高
-                            # 由於我們的粒子顏色 current_color_rgba 已經是 RGBA，推薦用 Surface
-                            if particle_render_size_px > 0:
-                                particle_surf = pygame.Surface((particle_render_size_px, particle_render_size_px), pygame.SRCALPHA)
-                                particle_surf.fill(particle_color_rgba)
-                                target_surface_for_view.blit(particle_surf, (particle_rect_x, particle_rect_y))
-
+                        particle_color_rgba = particle.get('current_color_rgba', (255,0,0,255))
+                        particle_logical_size_px = particle.get('current_size_px', 3)
+                        particle_render_size_px = max(1, int(particle_logical_size_px * s))
+                        if particle_color_rgba[3] > 0 and particle_render_size_px > 0:
+                            particle_surf = pygame.Surface((particle_render_size_px, particle_render_size_px), pygame.SRCALPHA)
+                            particle_surf.fill(particle_color_rgba)
+                            target_surface_for_view.blit(particle_surf, (particle_center_x_scaled - particle_render_size_px // 2, particle_center_y_scaled - particle_render_size_px // 2))
+            
             except Exception as e:
                 player_id_for_debug = view_player_data.get("identifier", "UnknownPlayer")
-                # if DEBUG_RENDERER: print(f"[Renderer._render_player_view] ({player_id_for_debug}) drawing error: {e}")
+                # if DEBUG_RENDERER: print(f"[Renderer._render_player_view] ({player_id_for_debug}) Ball/Particle drawing error: {e}")
                 import traceback; traceback.print_exc()
 
 
