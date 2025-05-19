@@ -60,9 +60,9 @@ purgatory_domain:
   bar_color: [255, 0, 0] # UI技能條顏色
 
   # 技能核心機制參數 (初步)
-  ball_instability_factor: 0.3  # 影響球路徑隨機性的因子 (數值越大越不穩定)
-  ball_base_speed_in_domain: 0.035 # 領域內球的基礎速度 (正規化)
-  ball_seek_target_strength: 0.2 # 球「追蹤」對手空檔的強度 (0表示不追蹤)
+  ball_instability_factor: 0.2  # 影響球路徑隨機性的因子 (數值越大越不穩定)
+  ball_base_speed_in_domain: 0.015 # 領域內球的基礎速度 (正規化)
+  ball_seek_target_strength: 0 # 球「追蹤」對手空檔的強度 (0表示不追蹤)
   opponent_paddle_slowdown_factor: 0.6 # 對手板子速度變為原來的百分比 (例如0.8表示減速20%)
 
   # 視覺特效參數 (初步，主要給 Renderer 使用)
@@ -71,16 +71,16 @@ purgatory_domain:
 
   pixel_flame_effect:
     enabled: true
-    particle_count: 30       # 預計同時存在的最大粒子數量
-    particle_base_size_px: 3 # 每個像素火焰粒子的基礎邏輯尺寸 (px)
-    particle_lifetime_ms: 600 # 每個粒子的平均生命週期 (毫秒)
+    particle_count: 80       # 預計同時存在的最大粒子數量
+    particle_base_size_px: 8 # 每個像素火焰粒子的基礎邏輯尺寸 (px)
+    particle_lifetime_ms: 1200 # 每個粒子的平均生命週期 (毫秒)
     # 粒子顏色將從亮（黃/橙）漸變到暗（紅/黑）
     color_start_rgba: [255, 200, 0, 220] # 初始顏色 (例如：亮橙黃，高透明度)
     color_mid_rgba: [255, 100, 0, 180]   # 中間顏色 (例如：橙紅)
     color_end_rgba: [139, 0, 0, 50]     # 結束顏色 (例如：暗紅，低透明度，趨向消失)
     # 粒子發射速度（相對於球的移動方向或隨機）
-    emission_speed_min_factor: 0.005 # 相對於球體半徑的最小每幀偏移量
-    emission_speed_max_factor: 0.015 # 相對於球體半徑的最大每幀偏移量
+    emission_speed_min_factor: 0.003 # 相對於球體半徑的最小每幀偏移量
+    emission_speed_max_factor: 0.020 # 相對於球體半徑的最大每幀偏移量
     # 粒子擴散角度（相對於球的移動反方向 +/- 這個角度）
     spread_angle_deg: 45
   # 音效路徑 (佔位符，實際路徑需要您提供或後續添加)

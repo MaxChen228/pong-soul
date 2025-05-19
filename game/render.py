@@ -534,6 +534,57 @@ class Renderer:
                 ball_rect = rotated_ball.get_rect(center=(ball_center_x_scaled, ball_center_y_scaled))
                 target_surface_for_view.blit(rotated_ball, ball_rect)
 
+                # <<< 新增開始：像素火焰粒子效果繪製 >>>
+                # 檢查是哪個玩家的煉獄領域技能處於活動狀態，並獲取其粒子數據
+                # (目前的設計是，如果任一玩家的煉獄領域啟用，其特效都會被渲染)
+                purgatory_skill_params_for_flames = None
+                if skill_data_view_player and \
+                   skill_data_view_player.get("visual_params", {}).get("type") == "purgatory_domain" and \
+                   skill_data_view_player.get("visual_params", {}).get("active_effects", False) and \
+                   skill_data_view_player.get("visual_params", {}).get("pixel_flames_enabled", False):
+                    purgatory_skill_params_for_flames = skill_data_view_player["visual_params"].get("pixel_flames_data")
+                elif skill_data_opponent and \
+                     skill_data_opponent.get("visual_params", {}).get("type") == "purgatory_domain" and \
+                     skill_data_opponent.get("visual_params", {}).get("active_effects", False) and \
+                     skill_data_opponent.get("visual_params", {}).get("pixel_flames_enabled", False):
+                    purgatory_skill_params_for_flames = skill_data_opponent["visual_params"].get("pixel_flames_data")
+
+                if purgatory_skill_params_for_flames:
+                    flame_particles = purgatory_skill_params_for_flames.get("particles", [])
+                    # flame_config = purgatory_skill_params_for_flames.get("config", {}) # 如果需要配置信息
+
+                    for particle in flame_particles:
+                        particle_x_norm = particle.get('x_norm', 0.5)
+                        particle_y_norm_raw = particle.get('y_norm', 0.5)
+                        
+                        # 如果是頂部玩家視角，Y座標需要翻轉
+                        particle_y_norm_for_view = 1.0 - particle_y_norm_raw if is_top_player_perspective else particle_y_norm_raw
+                        
+                        particle_center_x_scaled = ga_left + int(particle_x_norm * ga_width_scaled)
+                        particle_center_y_scaled = ga_top + int(particle_y_norm_for_view * ga_height_scaled)
+                        
+                        particle_color_rgba = particle.get('current_color_rgba', (255,0,0,255)) # 默認為紅色
+                        particle_logical_size_px = particle.get('current_size_px', 3) # 從技能傳來的邏輯像素大小
+                        
+                        # 將邏輯尺寸縮放到實際螢幕尺寸
+                        particle_render_size_px = max(1, int(particle_logical_size_px * s)) # s 是 self.game_content_scale_factor
+                        
+                        if particle_color_rgba[3] > 0: # Alpha > 0 才繪製
+                            # 計算矩形左上角座標
+                            particle_rect_x = particle_center_x_scaled - particle_render_size_px // 2
+                            particle_rect_y = particle_center_y_scaled - particle_render_size_px // 2
+                            
+                            # 為了更好的"像素感"，可以直接用 fill 一個小矩形
+                            # pygame.draw.rect(target_surface_for_view, particle_color_rgba,
+                            #                  (particle_rect_x, particle_rect_y, particle_render_size_px, particle_render_size_px))
+                            
+                            # 或者使用一個小的 Surface 來繪製，這樣可以利用 SRALPHA (如果顏色本身帶 alpha)
+                            # 且如果粒子顏色不透明，直接用 draw.rect 效率可能更高
+                            # 由於我們的粒子顏色 current_color_rgba 已經是 RGBA，推薦用 Surface
+                            if particle_render_size_px > 0:
+                                particle_surf = pygame.Surface((particle_render_size_px, particle_render_size_px), pygame.SRCALPHA)
+                                particle_surf.fill(particle_color_rgba)
+                                target_surface_for_view.blit(particle_surf, (particle_rect_x, particle_rect_y))
 
             except Exception as e:
                 player_id_for_debug = view_player_data.get("identifier", "UnknownPlayer")
