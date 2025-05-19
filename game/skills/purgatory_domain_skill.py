@@ -25,8 +25,21 @@ class PurgatoryDomainSkill(Skill):
                 "ball_seek_target_strength": 0.0, "opponent_paddle_slowdown_factor": 1.0,
                 "domain_filter_color_rgba": [30, 0, 50, 100], "ball_aura_color_rgba": [120, 50, 150, 200],
                 "sound_activate": None, "sound_domain_loop": None, "sound_ball_event": None, "sound_deactivate": None,
-                "pixel_flame_effect": {"enabled": False}, # 基本的 pixel_flame_effect 預設
-                "activation_animation": {"enabled": False, "duration_ms": 0} # 基本的 activation_animation 預設
+                "pixel_flame_effect": {"enabled": False},
+                "activation_animation": { # 基本的 activation_animation 預設
+                    "enabled": False, 
+                    "duration_ms": 0,
+                    "ball_effect": { # 新增 ball_effect 的預設
+                        "enabled": False,
+                        "vibration_intensity_norm": 0.005,
+                        "jump_intensity_norm": 0.01,
+                        "jump_frequency_hz": 2.0,
+                        "spin_speed_dps": 720,
+                        "hold_ball_at_center": True,
+                        "center_x_norm": 0.5,
+                        "center_y_norm": 0.5
+                    }
+                }
             }
 
         self.duration_ms = int(cfg.get("duration_ms", 7000))
@@ -45,18 +58,28 @@ class PurgatoryDomainSkill(Skill):
         self.sound_deactivate = self._load_sound(cfg.get("sound_deactivate"))
         self.domain_loop_channel = None
 
-        # 像素火焰效果設定
         self.pixel_flame_config = cfg.get("pixel_flame_effect", {})
         self.flame_particles_enabled = self.pixel_flame_config.get("enabled", False)
         self.flame_particles = []
         self.last_particle_emission_time = 0
 
-        # --- 新增：入場動畫相關屬性初始化 ---
         self.activation_animation_config = cfg.get("activation_animation", {})
         self.activation_animation_enabled = self.activation_animation_config.get("enabled", False)
         self.activation_animation_duration_ms = self.activation_animation_config.get("duration_ms", 0)
-        self.is_in_activation_animation = False # 動畫播放狀態
-        self.activation_animation_start_time = 0 # 動畫開始時間
+        self.is_in_activation_animation = False
+        self.activation_animation_start_time = 0
+        
+        # --- 新增：讀取入場動畫時球體的特殊效果參數 ---
+        self.ball_anim_effect_config = self.activation_animation_config.get("ball_effect", {})
+        self.ball_anim_effect_enabled = self.ball_anim_effect_config.get("enabled", False)
+        self.ball_anim_vibration_intensity = self.ball_anim_effect_config.get("vibration_intensity_norm", 0.005)
+        self.ball_anim_jump_intensity = self.ball_anim_effect_config.get("jump_intensity_norm", 0.01)
+        self.ball_anim_jump_frequency = self.ball_anim_effect_config.get("jump_frequency_hz", 2.0)
+        self.ball_anim_spin_speed_dps = self.ball_anim_effect_config.get("spin_speed_dps", 720) # dps = degrees per second
+        self.ball_anim_hold_at_center = self.ball_anim_effect_config.get("hold_ball_at_center", True)
+        self.ball_anim_center_x = self.ball_anim_effect_config.get("center_x_norm", 0.5)
+        self.ball_anim_center_y = self.ball_anim_effect_config.get("center_y_norm", 0.5)
+        self.current_ball_animation_spin_angle = 0 # 用於累積球在動畫期間的視覺旋轉角度
         # --- 新增結束 ---
 
         if DEBUG_PURGATORY_SKILL and self.flame_particles_enabled:
@@ -64,6 +87,9 @@ class PurgatoryDomainSkill(Skill):
         
         if DEBUG_PURGATORY_SKILL and self.activation_animation_enabled:
             print(f"[SKILL_DEBUG][{self.__class__.__name__}] ({self.owner.identifier}) Activation Animation enabled. Duration: {self.activation_animation_duration_ms}ms, Config: {self.activation_animation_config}")
+            if self.ball_anim_effect_enabled:
+                 print(f"    Ball Anim Effect enabled with config: {self.ball_anim_effect_config}")
+
 
         self.active = False
         self.activated_time = 0
@@ -71,6 +97,8 @@ class PurgatoryDomainSkill(Skill):
 
         if DEBUG_PURGATORY_SKILL:
             print(f"[SKILL_DEBUG][{self.__class__.__name__}] ({self.owner.identifier}) Initialized. Duration: {self.duration_ms}ms, Cooldown: {self.cooldown_ms}ms")
+    
+    
     def _create_flame_particle(self):
         """創建一個新的火焰粒子並返回其屬性字典。"""
         if not self.flame_particles_enabled:
@@ -164,17 +192,28 @@ class PurgatoryDomainSkill(Skill):
             return False
 
         self.active = True
-        self.activated_time = current_time # 技能主要效果的開始時間
+        self.activated_time = current_time
 
-        # --- 新增：啟動入場動畫狀態 ---
         if self.activation_animation_enabled:
             self.is_in_activation_animation = True
-            self.activation_animation_start_time = current_time # 動畫效果的開始時間
+            self.activation_animation_start_time = current_time
+            self.current_ball_animation_spin_angle = 0 # 重置動畫旋轉角度
             if DEBUG_PURGATORY_SKILL:
                 print(f"[SKILL_DEBUG][{self.__class__.__name__}] ({self.owner.identifier}) Activation Animation sequence started at {current_time}.")
+            
+            # --- 新增：如果設定了入場動畫時固定球位置 ---
+            if self.ball_anim_effect_enabled and self.ball_anim_hold_at_center:
+                self.env.ball_x = self.ball_anim_center_x
+                self.env.ball_y = self.ball_anim_center_y
+                self.env.ball_vx = 0
+                self.env.ball_vy = 0
+                self.env.spin = 0 # 物理自旋也歸零，視覺自旋由 current_ball_animation_spin_angle 控制
+                self.env.trail.clear() # 清除舊的軌跡
+                if DEBUG_PURGATORY_SKILL:
+                    print(f"    Ball position set for animation: ({self.env.ball_x:.2f}, {self.env.ball_y:.2f}), Vel: (0,0)")
+            # --- 新增結束 ---
         else:
-            self.is_in_activation_animation = False # 確保如果動畫未啟用，此標誌為 False
-        # --- 新增結束 ---
+            self.is_in_activation_animation = False
         
         if DEBUG_PURGATORY_SKILL: print(f"[SKILL_DEBUG][{self.__class__.__name__}] ({self.owner.identifier}) Activated!")
 
@@ -182,11 +221,7 @@ class PurgatoryDomainSkill(Skill):
             self.sound_activate.play()
         if self.sound_domain_loop:
             self.domain_loop_channel = self.sound_domain_loop.play(loops=-1)
-
-        # 通知環境球體視覺可能需要改變 (如果領域本身改變球的視覺)
-        # self.env.set_ball_visual_override(skill_identifier="purgatory_domain_ball", active=True, owner_identifier=self.owner.identifier)
         return True
-
     # <<< 新增的 update 方法 >>>
     def update(self):
         """
@@ -279,167 +314,207 @@ class PurgatoryDomainSkill(Skill):
                               env_paddle_height_norm, env_ball_radius_norm, env_render_size):
         """
         在此技能啟用期間，由此方法控制球的行為。
-        修改後：球將隨機往一個大致朝向對手的方向射出。
+        在入場動畫期間，球會震動、跳動和旋轉。動畫結束後，球會發射。
         返回: (new_ball_x, new_ball_y, new_ball_vx, new_ball_vy, new_spin, round_done, info)
         """
         new_ball_x, new_ball_y = current_ball_x, current_ball_y
-        new_ball_vx, new_ball_vy = current_ball_vx, current_ball_vy
-        new_spin = current_spin # 在此技能中，我們可能不改變 spin
+        new_ball_vx, new_ball_vy = 0, 0 # 預設速度為0，除非是常規發射階段
+        new_spin = current_spin
         round_done = False
         info = {'scorer': None, 'reason': None}
 
-        # === 1. 確定基礎Y軸移動方向 ===
-        if owner_player_state == self.env.player1: # 技能擁有者在下方 (P1)
-            target_y_direction = -1.0 # 球應主要向上移動 (Y值減小)
-            # target_goal_line_y = 0.0  # 對手底線
-            # owner_goal_line_y = 1.0   # 自己底線
-        else: # 技能擁有者在上方 (Opponent/P2)
-            target_y_direction = 1.0 # 球應主要向下移動 (Y值增大)
-            # target_goal_line_y = 1.0
-            # owner_goal_line_y = 0.0
+        time_now_ms = pygame.time.get_ticks()
+        is_in_intro_anim = False
+        anim_elapsed_time_ms = 0
 
-        # === 2. 更新球的速度 (隨機方向) ===
-        base_speed = self.ball_base_speed_in_domain
+        if self.is_in_activation_animation and self.activation_animation_enabled:
+            anim_elapsed_time_ms = time_now_ms - self.activation_animation_start_time
+            if anim_elapsed_time_ms < self.activation_animation_duration_ms:
+                is_in_intro_anim = True
+            else: # 動畫時間到，標記 is_in_activation_animation 為 False，以便下次不再進入此邏輯
+                self.is_in_activation_animation = False
+                if DEBUG_PURGATORY_SKILL:
+                    print(f"[SKILL_DEBUG][{self.__class__.__name__}] ({self.owner.identifier}) Ball intro animation finished. Proceeding to launch.")
 
-        # A. 生成一個基礎的隨機角度，使其大致朝向 target_y_direction
-        #    例如，如果 target_y_direction 是 -1 (向上)，角度範圍可以是 -pi/2 +/- pi/3 (即 -150度 到 -30度)
-        #    如果 target_y_direction 是  1 (向下)，角度範圍可以是  pi/2 +/- pi/3 (即  30度 到 150度)
-        if target_y_direction < 0: # 向上
-            base_random_angle = random.uniform(-math.pi * 5/6, -math.pi * 1/6) # -150 to -30 degrees
-        else: # 向下
-            base_random_angle = random.uniform(math.pi * 1/6, math.pi * 5/6)   #  30 to 150 degrees
 
-        # B. 疊加 ball_instability_factor 帶來的額外隨機擾動
-        #    擾動範圍可以小一些，例如 +/- pi/6 (30度) 乘以因子
-        additional_perturbation = random.uniform(-math.pi / 6, math.pi / 6) * self.ball_instability_factor
-        final_angle = base_random_angle + additional_perturbation
-        
-        new_ball_vx = base_speed * math.cos(final_angle)
-        new_ball_vy = base_speed * math.sin(final_angle)
+        if is_in_intro_anim and self.ball_anim_effect_enabled:
+            # --- 入場動畫期間的球體特殊效果 ---
+            base_x = self.ball_anim_center_x if self.ball_anim_hold_at_center else current_ball_x
+            base_y = self.ball_anim_center_y if self.ball_anim_hold_at_center else current_ball_y
 
-        if DEBUG_PURGATORY_SKILL and random.random() < 0.02: #降低打印频率
-             print(f"[SKILL_DEBUG][{self.__class__.__name__}] Domain Ball Update (Randomized): Speed={base_speed:.3f}, Angle={math.degrees(final_angle):.1f}, VX={new_ball_vx:.3f}, VY={new_ball_vy:.3f}")
+            # 1. 震動效果
+            vib_x = random.uniform(-self.ball_anim_vibration_intensity, self.ball_anim_vibration_intensity)
+            vib_y = random.uniform(-self.ball_anim_vibration_intensity, self.ball_anim_vibration_intensity)
+            
+            # 2. 跳動效果 (Y軸)
+            # anim_elapsed_time_ms 已經是從動畫開始的時間
+            jump_phase = (anim_elapsed_time_ms / 1000.0) * self.ball_anim_jump_frequency * 2 * math.pi
+            jump_offset = math.sin(jump_phase) * self.ball_anim_jump_intensity
+            
+            new_ball_x = base_x + vib_x
+            new_ball_y = base_y + vib_y + jump_offset
+            
+            # 限制在邊界內 (考慮球半徑)
+            new_ball_x = np.clip(new_ball_x, env_ball_radius_norm, 1.0 - env_ball_radius_norm)
+            new_ball_y = np.clip(new_ball_y, env_ball_radius_norm, 1.0 - env_ball_radius_norm)
 
-        # === 3. 更新球的位置 ===
-        new_ball_x += new_ball_vx * dt 
-        new_ball_y += new_ball_vy * dt
+            # 3. 旋轉效果 (視覺上的，不影響物理)
+            # dt 是 time_scale，但旋轉速度應該基於真實時間。FPS約為60。
+            # 每秒旋轉_dps度，所以每幀旋轉 _dps / 60 度。
+            # 注意：這裡的 current_spin 是物理自旋，我們可能需要一個獨立的視覺自旋變數
+            # 或者直接修改物理自旋值，但這可能會在動畫結束後影響球的飛行。
+            # 為了簡化，我們假設 self.env.spin 是視覺和物理共用的，但動畫期間不應用馬格努斯力。
+            # 或者，我們可以更新一個只用於渲染的自旋角度，
+            # 但 PurgatoryDomainSkill 目前沒有直接的 render 方法來畫球。
+            # Renderer.py 的 render 方法中 self.ball_angle 是累積的。
+            # 這裡的 new_spin 可以是物理自旋，也可以是傳給 Renderer 的視覺參考。
+            # 假設 current_spin 是從 env 來的，我們更新它。
+            spin_increment_per_frame = (self.ball_anim_spin_speed_dps / 60.0) # 假設60FPS
+            self.current_ball_animation_spin_angle = (self.current_ball_animation_spin_angle + spin_increment_per_frame) % 360
+            new_spin = math.radians(self.current_ball_animation_spin_angle) # 如果 spin 是弧度
+            # 或者如果 env.spin 就是角度: new_spin = self.current_ball_animation_spin_angle
 
-        # === 4. 處理邊界碰撞 (牆壁) ===
-        if new_ball_x - env_ball_radius_norm <= 0:
-            new_ball_x = env_ball_radius_norm
-            new_ball_vx *= -0.9 
-            if self.sound_ball_event: self.sound_ball_event.play()
-            if DEBUG_PURGATORY_SKILL: print(f"[SKILL_DEBUG][{self.__class__.__name__}] Domain: Ball hit side wall (left).")
-        elif new_ball_x + env_ball_radius_norm >= 1.0:
-            new_ball_x = 1.0 - env_ball_radius_norm
-            new_ball_vx *= -0.9
-            if self.sound_ball_event: self.sound_ball_event.play()
-            if DEBUG_PURGATORY_SKILL: print(f"[SKILL_DEBUG][{self.__class__.__name__}] Domain: Ball hit side wall (right).")
-        
-        new_ball_y = np.clip(new_ball_y, 0.0 + env_ball_radius_norm, 1.0 - env_ball_radius_norm)
+            if DEBUG_PURGATORY_SKILL and random.random() < 0.1: # 降低打印頻率
+                print(f"    Ball Anim: t={anim_elapsed_time_ms:.0f}ms, pos=({new_ball_x:.3f},{new_ball_y:.3f}), spin_angle_deg={self.current_ball_animation_spin_angle:.1f}")
 
-        # === 5. 處理得分 ===
-        scored_this_step = False
-        if owner_player_state == self.env.player1: 
-            if new_ball_y - env_ball_radius_norm <= 0.0: 
-                scored_this_step = True
-                info['scorer'] = self.owner.identifier
-        else: 
-            if new_ball_y + env_ball_radius_norm >= 1.0: 
-                scored_this_step = True
-                info['scorer'] = self.owner.identifier
+            # 動畫期間不進行得分、碰撞等常規物理判斷
+            # 更新軌跡，即使是原地抖動
+            if hasattr(self.env, 'trail') and hasattr(self.env, 'max_trail_length'):
+                self.env.trail.append((new_ball_x, new_ball_y))
+                if len(self.env.trail) > self.env.max_trail_length:
+                    self.env.trail.pop(0)
+            
+            return new_ball_x, new_ball_y, 0, 0, new_spin, False, info # 速度設為0，不結束回合
 
-        if scored_this_step:
-            if DEBUG_PURGATORY_SKILL:
-                print(f"[SKILL_DEBUG][{self.__class__.__name__}] ({self.owner.identifier}) SCORED in domain against {target_player_state.identifier}!")
-            if target_player_state.lives > 0 : target_player_state.lives -= 1
-            round_done = True
-            info['reason'] = f"{self.owner.identifier}_purgatory_scored"
-            self.deactivate(scored_by_skill=True) 
-            if self.sound_ball_event: self.sound_ball_event.play()
-
-        owner_scored_this_step = False
-        if not scored_this_step: 
+        else:
+            # --- 入場動畫結束 或 未啟用球體動畫效果，執行常規的領域內球體運動 ---
             if owner_player_state == self.env.player1:
-                if new_ball_y + env_ball_radius_norm >= 1.0:
-                    owner_scored_this_step = True
-            else: 
-                if new_ball_y - env_ball_radius_norm <= 0.0:
-                    owner_scored_this_step = True
-            
-            if owner_scored_this_step:
-                if DEBUG_PURGATORY_SKILL:
-                    print(f"[SKILL_DEBUG][{self.__class__.__name__}] ({self.owner.identifier}) Ball hit OWN GOAL LINE in domain!")
-                if owner_player_state.lives > 0: owner_player_state.lives -=1 
-                round_done = True
-                info['scorer'] = target_player_state.identifier 
-                info['reason'] = f"{target_player_state.identifier}_purgatory_own_goal"
-                self.deactivate(own_goal_by_skill=True)
-                if self.sound_ball_event: self.sound_ball_event.play()
-
-        # === 6. 處理與板子的碰撞 ===
-        if not round_done:
-            target_paddle_y_surface_contact_min, target_paddle_y_surface_contact_max = 0, 0
-            is_target_top_paddle = False
-
-            if target_player_state == self.env.opponent:
-                target_paddle_y_surface_contact_min = 0
-                target_paddle_y_surface_contact_max = env_paddle_height_norm
-                is_target_top_paddle = True
+                target_y_direction = -1.0
             else:
-                target_paddle_y_surface_contact_min = 1.0 - env_paddle_height_norm
-                target_paddle_y_surface_contact_max = 1.0
+                target_y_direction = 1.0
 
-            paddle_actual_half_width_norm = target_player_state.paddle_width_normalized / 2.0
-            target_paddle_x_min = target_player_state.x - paddle_actual_half_width_norm
-            target_paddle_x_max = target_player_state.x + paddle_actual_half_width_norm
-
-            ball_hit_paddle = False
-            # 精確的碰撞檢測，考慮球的半徑
-            if is_target_top_paddle: # 目標是頂部板子 (通常是對手)
-                # 球的下邊緣接觸到板子的下邊緣 (paddle_y + paddle_h)，且球的中心 Y 在板子 Y 範圍內或剛穿過
-                if new_ball_y - env_ball_radius_norm <= target_paddle_y_surface_contact_max and \
-                   new_ball_y + env_ball_radius_norm >= target_paddle_y_surface_contact_min: # Y軸重疊
-                    if new_ball_x - env_ball_radius_norm <= target_paddle_x_max and \
-                       new_ball_x + env_ball_radius_norm >= target_paddle_x_min: # X軸重疊
-                        ball_hit_paddle = True
-                        new_ball_y = target_paddle_y_surface_contact_max + env_ball_radius_norm # 移出板子
-            else: # 目標是底部板子 (通常是玩家自己)
-                if new_ball_y + env_ball_radius_norm >= target_paddle_y_surface_contact_min and \
-                   new_ball_y - env_ball_radius_norm <= target_paddle_y_surface_contact_max: # Y軸重疊
-                    if new_ball_x - env_ball_radius_norm <= target_paddle_x_max and \
-                       new_ball_x + env_ball_radius_norm >= target_paddle_x_min: # X軸重疊
-                        ball_hit_paddle = True
-                        new_ball_y = target_paddle_y_surface_contact_min - env_ball_radius_norm # 移出板子
+            base_speed = self.ball_base_speed_in_domain
+            if target_y_direction < 0:
+                base_random_angle = random.uniform(-math.pi * 5/6, -math.pi * 1/6)
+            else:
+                base_random_angle = random.uniform(math.pi * 1/6, math.pi * 5/6)
             
-            if ball_hit_paddle:
-                if DEBUG_PURGATORY_SKILL:
-                    # print(f"[SKILL_DEBUG][{self.__class__.__name__}] Domain: Ball hit TARGET PADDLE ({target_player_state.identifier}).")
-                    pass
-                
-                # 板子擊球後，球以更不可預測的方式反彈
-                # Y方向基本反彈
-                new_ball_vy *= -1.0 
-                
-                # X方向速度受擊球點影響，並增加隨機性
-                hit_offset_from_paddle_center = (new_ball_x - target_player_state.x) / (paddle_actual_half_width_norm + 1e-6) # Normalize to -1 to 1
-                random_vx_factor = random.uniform(0.5, 1.5) # 隨機的X速度因子
-                new_ball_vx += hit_offset_from_paddle_center * base_speed * 0.7 * random_vx_factor # 0.7是可調基礎影響
-                
-                # 限制最大X速度，但允許一定的隨機變化
-                new_ball_vx = np.clip(new_ball_vx, -base_speed * 1.8, base_speed * 1.8) 
-                new_ball_vy *= (1 + self.ball_instability_factor * random.uniform(0.1, 0.3)) # Y速度也增加不穩定性
+            additional_perturbation = random.uniform(-math.pi / 6, math.pi / 6) * self.ball_instability_factor
+            final_angle = base_random_angle + additional_perturbation
+            
+            new_ball_vx_launch = base_speed * math.cos(final_angle)
+            new_ball_vy_launch = base_speed * math.sin(final_angle)
 
+            # 如果是剛從動畫結束轉到發射，使用計算出的發射速度
+            # 否則，球應繼續之前的速度（如果已經在飛行中）
+            # 這裡的邏輯假設每次調用 update_ball_in_domain 且不在動畫中時，都是重新計算一個隨機方向和速度
+            # 這意味著一旦發射，球會持續以隨機方式改變方向和速度，直到撞擊或得分
+            new_ball_vx = new_ball_vx_launch
+            new_ball_vy = new_ball_vy_launch
+
+
+            if DEBUG_PURGATORY_SKILL and random.random() < 0.02:
+                 print(f"[SKILL_DEBUG][{self.__class__.__name__}] Domain Ball Launch/Update: Speed={base_speed:.3f}, Angle={math.degrees(final_angle):.1f}, VX={new_ball_vx:.3f}, VY={new_ball_vy:.3f}")
+
+            new_ball_x += new_ball_vx * dt 
+            new_ball_y += new_ball_vy * dt
+
+            # 牆壁碰撞
+            if new_ball_x - env_ball_radius_norm <= 0:
+                new_ball_x = env_ball_radius_norm
+                new_ball_vx *= -0.9 
+                if self.sound_ball_event: self.sound_ball_event.play()
+            elif new_ball_x + env_ball_radius_norm >= 1.0:
+                new_ball_x = 1.0 - env_ball_radius_norm
+                new_ball_vx *= -0.9
+                if self.sound_ball_event: self.sound_ball_event.play()
+            
+            new_ball_y = np.clip(new_ball_y, env_ball_radius_norm, 1.0 - env_ball_radius_norm)
+
+            # 得分判斷
+            scored_this_step = False
+            if owner_player_state == self.env.player1: 
+                if new_ball_y - env_ball_radius_norm <= 0.0: 
+                    scored_this_step = True
+                    info['scorer'] = self.owner.identifier
+            else: 
+                if new_ball_y + env_ball_radius_norm >= 1.0: 
+                    scored_this_step = True
+                    info['scorer'] = self.owner.identifier
+
+            if scored_this_step:
+                if target_player_state.lives > 0 : target_player_state.lives -= 1
+                round_done = True
+                info['reason'] = f"{self.owner.identifier}_purgatory_scored"
+                self.deactivate(scored_by_skill=True) 
                 if self.sound_ball_event: self.sound_ball_event.play()
 
-        # === 7. 更新環境中的球體軌跡 ===
-        if hasattr(self.env, 'trail') and hasattr(self.env, 'max_trail_length'):
-            self.env.trail.append((new_ball_x, new_ball_y))
-            if len(self.env.trail) > self.env.max_trail_length:
-                self.env.trail.pop(0)
-        
-        return new_ball_x, new_ball_y, new_ball_vx, new_ball_vy, new_spin, round_done, info
+            owner_scored_this_step = False # 判斷是否打到自己龍門
+            if not scored_this_step: 
+                if owner_player_state == self.env.player1:
+                    if new_ball_y + env_ball_radius_norm >= 1.0:
+                        owner_scored_this_step = True
+                else: 
+                    if new_ball_y - env_ball_radius_norm <= 0.0:
+                        owner_scored_this_step = True
+                
+                if owner_scored_this_step:
+                    if owner_player_state.lives > 0: owner_player_state.lives -=1 
+                    round_done = True
+                    info['scorer'] = target_player_state.identifier 
+                    info['reason'] = f"{target_player_state.identifier}_purgatory_own_goal"
+                    self.deactivate(own_goal_by_skill=True)
+                    if self.sound_ball_event: self.sound_ball_event.play()
 
+            # 板子碰撞 (常規階段)
+            if not round_done:
+                target_paddle_y_surface_contact_min, target_paddle_y_surface_contact_max = 0, 0
+                is_target_top_paddle = False
+
+                if target_player_state == self.env.opponent:
+                    target_paddle_y_surface_contact_min = 0
+                    target_paddle_y_surface_contact_max = env_paddle_height_norm
+                    is_target_top_paddle = True
+                else:
+                    target_paddle_y_surface_contact_min = 1.0 - env_paddle_height_norm
+                    target_paddle_y_surface_contact_max = 1.0
+
+                paddle_actual_half_width_norm = target_player_state.paddle_width_normalized / 2.0
+                target_paddle_x_min = target_player_state.x - paddle_actual_half_width_norm
+                target_paddle_x_max = target_player_state.x + paddle_actual_half_width_norm
+
+                ball_hit_paddle = False
+                if is_target_top_paddle:
+                    if new_ball_y - env_ball_radius_norm <= target_paddle_y_surface_contact_max and \
+                       new_ball_y + env_ball_radius_norm >= target_paddle_y_surface_contact_min:
+                        if new_ball_x - env_ball_radius_norm <= target_paddle_x_max and \
+                           new_ball_x + env_ball_radius_norm >= target_paddle_x_min:
+                            ball_hit_paddle = True
+                            new_ball_y = target_paddle_y_surface_contact_max + env_ball_radius_norm
+                else:
+                    if new_ball_y + env_ball_radius_norm >= target_paddle_y_surface_contact_min and \
+                       new_ball_y - env_ball_radius_norm <= target_paddle_y_surface_contact_max:
+                        if new_ball_x - env_ball_radius_norm <= target_paddle_x_max and \
+                           new_ball_x + env_ball_radius_norm >= target_paddle_x_min:
+                            ball_hit_paddle = True
+                            new_ball_y = target_paddle_y_surface_contact_min - env_ball_radius_norm
+                
+                if ball_hit_paddle:
+                    new_ball_vy *= -1.0 
+                    hit_offset_from_paddle_center = (new_ball_x - target_player_state.x) / (paddle_actual_half_width_norm + 1e-6)
+                    random_vx_factor = random.uniform(0.5, 1.5)
+                    new_ball_vx += hit_offset_from_paddle_center * base_speed * 0.7 * random_vx_factor
+                    new_ball_vx = np.clip(new_ball_vx, -base_speed * 1.8, base_speed * 1.8) 
+                    new_ball_vy *= (1 + self.ball_instability_factor * random.uniform(0.1, 0.3))
+                    if self.sound_ball_event: self.sound_ball_event.play()
+
+            if hasattr(self.env, 'trail') and hasattr(self.env, 'max_trail_length'):
+                self.env.trail.append((new_ball_x, new_ball_y))
+                if len(self.env.trail) > self.env.max_trail_length:
+                    self.env.trail.pop(0)
+            
+            return new_ball_x, new_ball_y, new_ball_vx, new_ball_vy, new_spin, round_done, info
+        
     def deactivate(self, *args, **kwargs):
         # 檢查是否有額外的參數指示停用原因
         # reason = kwargs.get('reason', 'normal_deactivation') 

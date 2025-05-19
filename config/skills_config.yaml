@@ -105,6 +105,15 @@ purgatory_domain:
       thickness_peak_factor: 0.2  # 動畫中途達到的最大厚度比例
       thickness_end_factor: 0.15  # 動畫結束時的厚度比例 (可以不為0，與主濾鏡融合)
       peak_time_ratio: 0.6      # 最大厚度在動畫總時長的哪個比例達到 (0.0 到 1.0)
+    ball_effect: # 新增區塊，控制入場動畫時球的特殊效果
+      enabled: true
+      vibration_intensity_norm: 0.005 # 球震動的最大偏移量 (正規化座標)
+      jump_intensity_norm: 0.01     # 球跳動的最大Y軸偏移量 (正規化座標)
+      jump_frequency_hz: 5.0        # 球每秒跳動次數
+      spin_speed_dps: 720           # 球每秒旋轉度數
+      hold_ball_at_center: false     # 是否在動畫期間將球固定在屏幕中心 (或發動者前方)
+      center_x_norm: 0.5            # 如果 hold_ball_at_center 為 true，球的X中心
+      center_y_norm: 0.5            # 如果 hold_ball_at_center 為 true，球的Y中心 (相對於場地)
   # <<< 新增結束：入場動畫參數 >>>
 
   sound_activate: "assets/sfx/purgatory_activate.mp3"
