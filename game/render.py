@@ -5,6 +5,7 @@ from game.theme import Style
 from game.settings import GameSettings # 確保 GameSettings 已導入
 from utils import resource_path
 from game.skills.skill_config import SKILL_CONFIGS # 用於技能條顏色等
+import random
 
 DEBUG_RENDERER = False # 您可以將這些除錯旗標設為 True 來輔助排錯
 DEBUG_RENDERER_FULLSCREEN = False
@@ -678,7 +679,62 @@ class Renderer:
             self._render_health_bar_for_pva(player1_data, is_opponent=False)
             self._render_health_bar_for_pva(opponent_data, is_opponent=True)
             self._render_skill_ui_for_pva(player1_data)
+        # --- 新增：繪製螢幕中央的技能名大字效果 ---
+        central_skill_name_text = render_data.get("central_skill_name_text")
+        if central_skill_name_text:
+            start_time_ms = render_data.get("central_skill_name_start_time_ms", 0)
+            duration_ms = render_data.get("central_skill_name_duration_ms", 2000)
+            fade_duration_ms = render_data.get("central_skill_name_fade_duration_ms", 500)
 
+            current_time_ms = pygame.time.get_ticks()
+            elapsed_time_ms = current_time_ms - start_time_ms
+
+            if elapsed_time_ms < duration_ms:
+                alpha = 255
+                # 計算淡出效果
+                if elapsed_time_ms > (duration_ms - fade_duration_ms):
+                    time_into_fade = elapsed_time_ms - (duration_ms - fade_duration_ms)
+                    alpha = max(0, 255 * (1 - (time_into_fade / fade_duration_ms)))
+
+                # 設定字體大小和顏色
+                # 你可以將 CENTRAL_SKILL_NAME_LOGICAL_FONT_SIZE 定義在 Style 類或 global_settings.yaml
+                logical_font_size = getattr(Style, 'CENTRAL_SKILL_NAME_LOGICAL_FONT_SIZE', 70) # 預設70
+                scaled_font_size = int(logical_font_size * self.game_content_scale_factor)
+
+                # 使用 Style.get_font() 來獲取當前主題的字體 (unifont)
+                # 注意：如果 Style.FONT_PATH 沒有被設定為 unifont，這裡可能需要直接指定字體路徑
+                try:
+                    central_font = Style.get_font(scaled_font_size)
+                except Exception as e: # 字體加載失敗的備用方案
+                    if DEBUG_RENDERER: # 假設你有 DEBUG_RENDERER 開關
+                        print(f"[Renderer] Error loading font via Style.get_font for central skill name: {e}. Using fallback.")
+                    central_font = pygame.font.Font(resource_path('assets/unifont-16.0.03.otf'), scaled_font_size)
+
+
+                text_color_rgb = Style.TEXT_COLOR[:3] # 取RGB部分
+
+                # 創建帶有透明度的文字表面
+                try:
+                    # Pygame 的 render 不直接接受帶 alpha 的顏色元組來實現半透明文字，
+                    # 而是先渲染不透明文字，然後設定整個 surface 的 alpha。
+                    text_surface = central_font.render(central_skill_name_text, True, text_color_rgb)
+                    text_surface.set_alpha(int(alpha))
+                except Exception as e:
+                    if DEBUG_RENDERER:
+                        print(f"[Renderer] Error rendering central skill name text: {e}")
+                    text_surface = None
+
+
+                if text_surface:
+                    # 計算文字位置使其在螢幕中央
+                    # 使用 self.window.get_rect().center 因為這是全螢幕效果
+                    screen_center_x, screen_center_y = self.window.get_rect().center
+                    text_rect = text_surface.get_rect(center=(screen_center_x, screen_center_y))
+
+                    self.window.blit(text_surface, text_rect)
+                    if DEBUG_RENDERER and random.random() < 0.1: # 降低打印頻率
+                         print(f"    Displaying Central Skill: '{central_skill_name_text}', Alpha: {alpha:.0f}, Elapsed: {elapsed_time_ms}ms")
+        # --- 新增結束 ---
         pygame.display.flip()
         self.clock.tick(60)
 
@@ -742,38 +798,46 @@ class Renderer:
         # skill_data is expected to be a dictionary like:
         # { "code_name": "slowmo", "is_active": False, "energy_ratio": 1.0, "cooldown_seconds": 0.0 }
 
-        text_offset_x_scaled = int(5 * scale_factor) 
+        # text_offset_x_scaled = int(5 * scale_factor) # 不再需要
         scaled_border_radius = max(1, int(2*scale_factor))
 
         skill_code_name = skill_data.get("code_name", "unknown_skill")
-        skill_cfg = SKILL_CONFIGS.get(skill_code_name, {})
+        skill_cfg = SKILL_CONFIGS.get(skill_code_name, {}) # 確保導入 SKILL_CONFIGS
         bar_fill_color_rgb = skill_cfg.get("bar_color", (200, 200, 200))
-        bar_bg_color_rgb = (50,50,50)
+        bar_bg_color_rgb = (50,50,50) # 可以考慮也加入到 Style 或 skill_cfg 中
 
+        # 繪製背景條
         pygame.draw.rect(surface, bar_bg_color_rgb, (x, y, width_scaled, height_scaled), border_radius=scaled_border_radius)
 
+        # 繪製能量/冷卻進度條
         energy_ratio = skill_data.get("energy_ratio", 0.0)
         current_bar_width_scaled = int(width_scaled * energy_ratio)
         pygame.draw.rect(surface, bar_fill_color_rgb, (x, y, current_bar_width_scaled, height_scaled), border_radius=scaled_border_radius)
 
-        display_text = ""
-        text_color = Style.TEXT_COLOR
-        is_active = skill_data.get("is_active", False)
-        cooldown_seconds = skill_data.get("cooldown_seconds", 0.0)
+        # --- 以下顯示文字的邏輯被移除 ---
+        # display_text = ""
+        # text_color = Style.TEXT_COLOR
+        # is_active = skill_data.get("is_active", False)
+        # cooldown_seconds = skill_data.get("cooldown_seconds", 0.0)
 
-        if is_active:
-            display_text = f"{skill_code_name.upper()}!"
-            text_color = bar_fill_color_rgb
-        elif cooldown_seconds > 0:
-            display_text = f"{cooldown_seconds:.1f}s"
-        else:
-            display_text = "RDY" 
-            text_color = (200, 255, 200)
+        # if is_active:
+        #     # display_name_zh = skill_cfg.get("display_name_zh_full", skill_code_name.upper()) # 假設已在 skill_cfg 中
+        #     # display_text = f"{display_name_zh}!"
+        #     # text_color = bar_fill_color_rgb
+        #     pass # 不再顯示激活文字
+        # elif cooldown_seconds > 0:
+        #     # display_text = f"{cooldown_seconds:.1f}s"
+        #     pass # 不再顯示冷卻時間
+        # else:
+        #     # display_text = "RDY" 
+        #     # text_color = (200, 255, 200)
+        #     pass # 不再顯示 RDY
 
-        if display_text:
-            text_surf = font.render(display_text, True, text_color)
-            text_rect = text_surf.get_rect(midleft=(x + width_scaled + text_offset_x_scaled, y + height_scaled / 2))
-            surface.blit(text_surf, text_rect)
+        # if display_text: # 由於 display_text 始終為空（或未賦值），這整個塊都不會執行
+        #     text_surf = font.render(display_text, True, text_color)
+        #     text_rect = text_surf.get_rect(midleft=(x + width_scaled + text_offset_x_scaled, y + height_scaled / 2))
+        #     surface.blit(text_surf, text_rect)
+        # --- 移除結束 ---
 
     def _render_health_bar_for_pva(self, player_data, is_opponent):
         # player_data is expected to be a dictionary like:

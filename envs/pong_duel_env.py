@@ -15,8 +15,10 @@ from game.skills.long_paddle_skill import LongPaddleSkill
 from game.skills.slowmo_skill import SlowMoSkill
 from game.skills.soul_eater_bug_skill import SoulEaterBugSkill
 from game.skills.purgatory_domain_skill import PurgatoryDomainSkill
+from game.skills.skill_config import SKILL_CONFIGS # 確保導入 (activate_skill 會用到)
 
-DEBUG_ENV = False
+
+DEBUG_ENV = False # 你可以將此設為 True 以便調試
 DEBUG_ENV_FULLSCREEN = False
 
 class PongDuelEnv:
@@ -24,7 +26,7 @@ class PongDuelEnv:
                  game_mode=GameSettings.GameMode.PLAYER_VS_AI,
                  player1_config=None,
                  opponent_config=None,
-                 common_config=None, # common_config 仍然可以由 GameplayState 傳入，但我們會優先使用它的值，然後才是 GameSettings 的預設
+                 common_config=None,
                  render_size=400,
                  paddle_height_px=10,
                  ball_radius_px=10,
@@ -37,7 +39,7 @@ class PongDuelEnv:
 
         self.game_mode = game_mode
         self.sound_manager = SoundManager()
-        self.renderer = None
+        self.renderer = None # Renderer 會在第一次 render() 時創建
         self.render_size = render_size
         self.paddle_height_px = paddle_height_px
         self.ball_radius_px = ball_radius_px
@@ -79,46 +81,44 @@ class PongDuelEnv:
         self.ball_vy = 0.0
         self.spin = 0
         self.bounces = 0
-        self.freeze_timer = 0
-        self.time_scale = 1.0
+        self.freeze_timer = 0 # 用於回合結束後的短暫停頓
+        self.time_scale = 1.0 # 當前遊戲速度的時間縮放因子
 
-        # 如果 GameplayState 沒有傳遞 common_config，則 cfg 為空字典
         cfg = common_config if common_config else {}
 
-        # 現在從 common_config (如果提供) 或 GameSettings 的預設值獲取參數
-        # GameSettings 的值作為最終的備用
         self.mass = cfg.get('mass', GameSettings.ENV_DEFAULT_MASS)
         self.e_ball_paddle = cfg.get('e_ball_paddle', GameSettings.ENV_DEFAULT_E_BALL_PADDLE)
         self.mu_ball_paddle = cfg.get('mu_ball_paddle', GameSettings.ENV_DEFAULT_MU_BALL_PADDLE)
         self.enable_spin = cfg.get('enable_spin', GameSettings.ENV_DEFAULT_ENABLE_SPIN)
-        self.magnus_factor = cfg.get('magnus_factor', GameSettings.PHYSICS_MAGNUS_FACTOR) # 移至 physics 組
+        self.magnus_factor = cfg.get('magnus_factor', GameSettings.PHYSICS_MAGNUS_FACTOR)
         self.speed_increment = cfg.get('speed_increment', GameSettings.ENV_DEFAULT_SPEED_INCREMENT)
         self.speed_scale_every = cfg.get('speed_scale_every', GameSettings.ENV_DEFAULT_SPEED_SCALE_EVERY)
         
-        # 球的初始行為參數，優先使用關卡 YAML 中的，然後是 common_config，最後是 GameSettings
         self.initial_ball_speed = cfg.get('initial_speed', GameSettings.BALL_INITIAL_SPEED)
         self.initial_angle_range_deg = cfg.get('initial_angle_deg_range', GameSettings.BALL_INITIAL_ANGLE_DEG_RANGE)
-        # initial_direction_serves_down 在 reset_ball_after_score 中使用，但其預設值也應來自 GameSettings
-        # GameplayState 中的 GameplayState.on_enter() 會從關卡 YAML 讀取 level_specific_config 並更新 common_game_config
-        # 所以這裡的 GameSettings.BALL_INITIAL_DIRECTION_SERVES_DOWN 主要是作為一個絕對備用
-        # self.initial_direction_serves_down = cfg.get('initial_direction', GameSettings.BALL_INITIAL_DIRECTION_SERVES_DOWN)
-        # ^^^ 這個屬性主要在 reset_ball_after_score 中用於邏輯判斷，不在這裡直接賦值給 self。
-        # 它的值應在 GameplayState 構建 common_config 時就已確定。
+        
+        self.freeze_duration = cfg.get('freeze_duration_ms', GameSettings.FREEZE_DURATION_MS) # 回合結束停頓時長
+        self.countdown_seconds = cfg.get('countdown_seconds', GameSettings.COUNTDOWN_SECONDS) # 遊戲開始倒數
+        self.bg_music = cfg.get("bg_music", "bg_music_level1.mp3") # 背景音樂
 
-        self.freeze_duration = cfg.get('freeze_duration_ms', GameSettings.FREEZE_DURATION_MS)
-        self.countdown_seconds = cfg.get('countdown_seconds', GameSettings.COUNTDOWN_SECONDS)
-        self.bg_music = cfg.get("bg_music", "bg_music_level1.mp3")
+        self.trail = [] # 球的拖尾數據
+        self.max_trail_length = GameSettings.MAX_TRAIL_LENGTH
+        self.ball_visual_key = "default" # 當前球體視覺外觀的鍵名 (例如 "default", "soul_eater_bug")
+        self.active_ball_visual_skill_owner = None # 記錄是哪個玩家的技能改變了球體視覺
 
-        self.trail = []
-        self.ball_visual_key = "default"
-        self.active_ball_visual_skill_owner = None
-        self.max_trail_length = GameSettings.MAX_TRAIL_LENGTH # <--- 從 GameSettings 讀取
+        self.round_concluded_by_skill = False # 標記當前回合是否由技能（而非常規得分）結束
+        self.current_round_info = {} # 儲存當前回合結束的資訊 (得分者，原因等)
 
-        self.round_concluded_by_skill = False
-        self.current_round_info = {}
+        # --- 新增：螢幕中央技能名顯示相關屬性 ---
+        self.skill_name_to_display_on_screen = None
+        self.skill_name_display_start_time_ms = 0
+        # 技能名顯示的總時長 (毫秒)，可以考慮之後移到 Style 或 global_settings.yaml
+        self.skill_name_display_duration_ms = 2000 # 例如 2 秒
+        self.skill_name_fade_duration_ms = 500   # 最後 0.5 秒用於淡出
+        # --- 新增結束 ---
 
         if DEBUG_ENV: print("[SKILL_DEBUG][PongDuelEnv.__init__] Env Initialization complete (skills linked).")
-        self.reset()
+        self.reset() # 初始化環境狀態，包括球的位置和第一次發球
 
     def _create_skill(self, skill_code, owner_player_state):
         if not skill_code or skill_code.lower() == 'none':
@@ -167,7 +167,20 @@ class PongDuelEnv:
             if DEBUG_ENV: print(f"[SKILL_DEBUG][PongDuelEnv.activate_skill] Attempting to activate skill for {player_state_object.identifier}.")
             activated = player_state_object.skill_instance.activate()
             if activated:
-                 if DEBUG_ENV: print(f"[SKILL_DEBUG][PongDuelEnv.activate_skill] Skill for {player_state_object.identifier} ACTIVATED successfully.")
+                if DEBUG_ENV: print(f"[SKILL_DEBUG][PongDuelEnv.activate_skill] Skill for {player_state_object.identifier} ACTIVATED successfully.")
+                
+                # --- 新增：觸發螢幕中央技能名顯示 ---
+                skill_code = player_state_object.skill_code_name
+                if skill_code:
+                    skill_config_for_name = SKILL_CONFIGS.get(skill_code, {})
+                    name_to_show = skill_config_for_name.get("display_name_zh_full", skill_code.upper()) # 預設回退到大寫技能代碼
+                    
+                    self.skill_name_to_display_on_screen = name_to_show
+                    self.skill_name_display_start_time_ms = pygame.time.get_ticks()
+                    if DEBUG_ENV:
+                        print(f"    Central Skill Name Triggered: '{name_to_show}', StartTime: {self.skill_name_display_start_time_ms}")
+                # --- 新增結束 ---
+
             else:
                  if DEBUG_ENV: print(f"[SKILL_DEBUG][PongDuelEnv.activate_skill] Skill for {player_state_object.identifier} FAILED to activate.")
         elif DEBUG_ENV:
@@ -452,6 +465,13 @@ class PongDuelEnv:
         round_done = False
         info = {'scorer': None}
         current_time_ticks = pygame.time.get_ticks()
+        # --- 新增：檢查螢幕中央技能名顯示是否結束 ---
+        if self.skill_name_to_display_on_screen is not None:
+            if current_time_ticks - self.skill_name_display_start_time_ms >= self.skill_name_display_duration_ms:
+                self.skill_name_to_display_on_screen = None # 顯示時間到，清除
+                if DEBUG_ENV:
+                    print(f"    Central Skill Name Display timed out. Cleared.")
+        # --- 新增結束 ---
 
         if not collided_with_paddle_this_step:
             if self.ball_y - self.ball_radius_normalized < 0:
@@ -536,6 +556,12 @@ class PongDuelEnv:
             "paddle_height_norm": self.paddle_height_normalized, 
             "freeze_active": freeze_active,
             "logical_paddle_height_px": self.paddle_height_px,
+            # --- 新增傳遞給 Renderer 的技能名顯示資訊 ---
+            "central_skill_name_text": self.skill_name_to_display_on_screen,
+            "central_skill_name_start_time_ms": self.skill_name_display_start_time_ms,
+            "central_skill_name_duration_ms": self.skill_name_display_duration_ms,
+            "central_skill_name_fade_duration_ms": self.skill_name_fade_duration_ms,
+            # --- 新增結束 ---
         }
         return render_data
 
