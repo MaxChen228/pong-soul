@@ -22,7 +22,7 @@ class Theme:
     def get_font(self, size):
         return pygame.font.Font(resource_path(self.FONT_PATH), size)
 
-NEW_FONT_PATH = 'assets/unifont-16.0.03.otf' # 定義新的字體路徑
+NEW_FONT_PATH = 'assets/PressStart2P.ttf' # 定義新的字體路徑
 
 RETRO_ARCADE = Theme(
     "Retro Arcade",
@@ -34,7 +34,7 @@ NEON_CYBERPUNK = Theme(
     "Neon Cyberpunk",
     background=(15, 15, 15), ball=(0, 255, 255), player=(255, 0, 255), ai=(255, 255, 0),
     player_bar_bg=(80, 0, 80), player_bar_fill=(255, 0, 255), ai_bar_bg=(80, 80, 0), ai_bar_fill=(255, 255, 0),
-    text=(255, 255, 255), font_path=NEW_FONT_PATH # <--- 修改
+    text=(255, 255, 255), font_path=NEW_FONT_PATH # <--- 修Chinese Traditional改
 )
 MORANDI_ELEGANCE = Theme(
     "Morandi Elegance",
@@ -60,6 +60,75 @@ MATERIAL_FLAT = Theme(
     player_bar_bg=(200, 230, 201), player_bar_fill=(76, 175, 80), ai_bar_bg=(239, 154, 154), ai_bar_fill=(244, 67, 54),
     text=(33, 33, 33), font_path=NEW_FONT_PATH # <--- 修改
 )
+NORD_ARCTIC = Theme(
+    "Nord Arctic",
+    background=(46, 52, 64),          # nord0
+    ball=(216, 222, 233),             # nord4
+    player=(143, 188, 187),           # frost-nord7
+    ai=(163, 190, 140),               # aurora-nord14
+    player_bar_bg=(59, 66, 82),       # nord1
+    player_bar_fill=(143, 188, 187),
+    ai_bar_bg=(67, 76, 94),           # nord2
+    ai_bar_fill=(163, 190, 140),
+    text=(236, 239, 244),             # nord6
+    font_path=NEW_FONT_PATH
+)
+
+SOLARIZED_LIGHT = Theme(
+    "Solarized Light",
+    background=(253, 246, 227),       # base3
+    ball=(88, 110, 117),              # base01
+    player=(38, 139, 210),            # Blue
+    ai=(181, 137,   0),               # Yellow
+    player_bar_bg=(238, 232, 213),    # base2
+    player_bar_fill=(38, 139, 210),
+    ai_bar_bg=(238, 232, 213),
+    ai_bar_fill=(181, 137,   0),
+    text=(101, 123, 131),             # base00
+    font_path=NEW_FONT_PATH
+)
+
+SOLARIZED_DARK = Theme(
+    "Solarized Dark",
+    background=(  0,  43,  54),       # base03
+    ball=(253, 246, 227),             # base3
+    player=( 42, 161, 152),           # Cyan
+    ai=(220,  50,  47),               # Red
+    player_bar_bg=(  7,  54,  66),    # base02
+    player_bar_fill=( 42, 161, 152),
+    ai_bar_bg=(  7,  54,  66),
+    ai_bar_fill=(220,  50,  47),
+    text=(131, 148, 150),             # base0
+    font_path=NEW_FONT_PATH
+)
+
+DRACULA_NIGHT = Theme(
+    "Dracula Night",
+    background=( 40,  42,  54),
+    ball=(248, 248, 242),
+    player=( 80, 250, 123),           # Green
+    ai=(255,  85,  85),               # Red
+    player_bar_bg=( 68,  71,  90),
+    player_bar_fill=( 80, 250, 123),
+    ai_bar_bg=( 68,  71,  90),
+    ai_bar_fill=(255,  85,  85),
+    text=(189, 147, 249),             # Purple
+    font_path=NEW_FONT_PATH
+)
+
+TREND_2025_WARM = Theme(
+    "Trend 2025 Warm",
+    background=(247, 232, 211),       # Cream
+    ball=( 17,  45,  78),             # Midnight
+    player=(191,  25,  34),           # Red
+    ai=(  0, 207, 200),               # Aquamarine
+    player_bar_bg=(201, 147,  60),    # Mustard
+    player_bar_fill=(191,  25,  34),
+    ai_bar_bg=( 94, 135, 180),
+    ai_bar_fill=(  0, 207, 200),
+    text=( 33,  33,  33),
+    font_path=NEW_FONT_PATH
+)
 
 ALL_THEMES = {
     "Retro Arcade": RETRO_ARCADE,
@@ -67,7 +136,12 @@ ALL_THEMES = {
     "Morandi Elegance": MORANDI_ELEGANCE,
     "Japanese Traditional": JAPANESE_TRADITIONAL,
     "Chinese Traditional": CHINESE_TRADITIONAL,
-    "Material Flat": MATERIAL_FLAT
+    "Material Flat": MATERIAL_FLAT,
+    "Nord Arctic": NORD_ARCTIC,
+    "Solarized Light": SOLARIZED_LIGHT,
+    "Solarized Dark": SOLARIZED_DARK,
+    "Dracula Night": DRACULA_NIGHT,
+    "Trend 2025 Warm": TREND_2025_WARM
 }
 
 ACTIVE_THEME = None

@@ -33,7 +33,7 @@ class _GameSettingsSingleton:
             "ball_behavior.initial_speed": 0.02,
             "ball_behavior.initial_angle_deg_range": [-60, 60],
             "ball_behavior.initial_direction_serves_down": True,
-            "theme.active_theme_name": "Retro Arcade",
+            "theme.active_theme_name": "Chinese Traditional",
             "renderer.visual_spin_multiplier": 10,
             "renderer.ball_glow.enable": True,
             "renderer.ball_glow.max_radius_factor": 1.5,

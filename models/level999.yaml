@@ -1,12 +1,13 @@
-initial_direction: "up"
-initial_angle_deg_range: [-60, 60]
-initial_speed: 0.02
-enable_spin: true
-magnus_factor: 0.04
-speed_increment: 0.1
-speed_scale_every: 1
-player_life: 5
-ai_life: 5
-player_paddle_width: 100
-ai_paddle_width: 80
-bg_music: "bg_music_level2.mp3"   # ⭐️ 新增這一行（level2專屬bgm）
+initial_direction: "down" # or "up"
+initial_angle_deg_range: [-45, 45] # Initial angle range in degrees, e.g., [-60, 60]
+initial_speed: 0.03 # Initial speed of the ball
+enable_spin: true # true or false
+magnus_factor: 0.05 # Strength of the Magnus effect
+speed_increment: 0.003 # How much speed increases after each paddle hit
+speed_scale_every: 2 # Speed scales every N hits
+player_life: 1
+ai_life: 99
+player_paddle_width: 50 # Width of the player's paddle
+ai_paddle_width: 150 # Width of the AI's paddle
+bg_music: "bg_music_level999.mp3"
+theme_name: "Neon Cyberpunk" # <--- 新增此行
