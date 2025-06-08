@@ -1,7 +1,7 @@
 # config/skills_config.yaml
 
 slowmo:
-  display_name_zh_full: "白金之星・世界"
+  display_name_zh_full: "Platinum Star: The World"
   duration_ms: 3000
   cooldown_ms: 1000
   paddle_color: [0, 150, 255]
@@ -19,7 +19,7 @@ slowmo:
   owner_paddle_speed_multiplier: 10
 
 long_paddle:
-  display_name_zh_full: "無限聖盾・鎮魂" # <--- 新增
+  display_name_zh_full: "Infinite Aegis: Requiem" # <--- 新增
   duration_ms: 3000
   cooldown_ms: 5000
   paddle_color: [0, 255, 100]
@@ -28,7 +28,7 @@ long_paddle:
   # bar_color: [0, 100, 0] # UI related
 
 soul_eater_bug:
-  display_name_zh_full: "幽冥邪蟲・噬魂"
+  display_name_zh_full: "Nether Bug: Soul Eater"
   duration_ms: 8000
   cooldown_ms: 1000 # 建議將冷卻時間調整回一個更合理的值，例如 10000 或 12000
   bar_color: [150, 50, 200]
@@ -57,7 +57,7 @@ soul_eater_bug:
 
 purgatory_domain:
   code_name: "purgatory_domain" # 內部代號，用於程式選擇等
-  display_name_zh_full: "滅卻終焉・淨土"
+  display_name_zh_full: "Final Purgatory: Pure Land"
   duration_ms: 5000
   cooldown_ms: 8000
   bar_color: [255, 0, 0] # UI技能條顏色

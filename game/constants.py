@@ -21,18 +21,17 @@ DEFAULT_MENU_CONTROLS = {
 # --- Key Mappings for Gameplay ---
 # Player 1 Gameplay Controls
 P1_GAME_CONTROLS = {
-    'LEFT_KB': pygame.K_LEFT,    # Keyboard left for P1
-    'RIGHT_KB': pygame.K_RIGHT,  # Keyboard right for P1
-    'SKILL_KB': pygame.K_x,      # Keyboard skill for P1 (example)
-    # If mouse controls were more complex, they could also be defined here,
-    # but mouse movement is usually direct input, not key mapping.
+    'LEFT_KB': pygame.K_a,       # P1 左移改為 'A' 鍵
+    'RIGHT_KB': pygame.K_d,      # P1 右移改為 'D' 鍵
+    'SKILL_KB': pygame.K_DOWN,   # P1 技能改為「下方向鍵」
+    # Mouse controls are handled directly in GameplayState, not via these constants.
 }
 
 # Player 2 Gameplay Controls (for PvP)
 P2_GAME_CONTROLS = {
-    'LEFT': pygame.K_a,       # Player 2 Left
-    'RIGHT': pygame.K_d,      # Player 2 Right
-    'SKILL': pygame.K_s       # Player 2 Skill
+    'LEFT': pygame.K_LEFT,     # P2 左移改為「左方向鍵」
+    'RIGHT': pygame.K_RIGHT,    # P2 右移改為「右方向鍵」
+    'SKILL': pygame.K_s        # P2 技能暫時保持為 'S' 鍵 (如果需要更改請告知)
 }
 
 # --- Add other game-wide constants below as needed ---
