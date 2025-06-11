@@ -33,7 +33,7 @@ soul_eater_bug:
   cooldown_ms: 1000 # 建議將冷卻時間調整回一個更合理的值，例如 10000 或 12000
   bar_color: [150, 50, 200]
   bug_image_path: "assets/soul_eater_bug.png"
-  bug_display_scale_factor: 2.0
+  bug_display_scale_factor: 10.0
 
   sound_activate: "assets/bug_activate.mp3"
   sound_crawl: "assets/bug_crawl.mp3"

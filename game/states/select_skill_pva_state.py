@@ -112,7 +112,7 @@ class SelectSkillPvaState(BaseState):
         subtitle_x = self.render_area.left + int(Style.SUBTITLE_POS[0] * self.scale_factor)
         
         scaled_line_spacing = int(Style.ITEM_LINE_SPACING * self.scale_factor)
-        subtitle_y = title_y + self.font_title.get_height() - scaled_line_spacing // 2 + int(5 * self.scale_factor)
+        subtitle_y = self.render_area.top + int(Style.SUBTITLE_POS[1] * self.scale_factor)
 
         title_surf = self.font_title.render(menu_title_text, True, Style.TEXT_COLOR)
         surface.blit(title_surf, (title_x, title_y))

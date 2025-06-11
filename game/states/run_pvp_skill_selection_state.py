@@ -10,10 +10,10 @@ class RunPvpSkillSelectionState(BaseState):
     def __init__(self, game_app):
         super().__init__(game_app)
         self.skills_options = [
-            ("白金之星・世界", "slowmo"),
-            ("無限聖盾・鎮魂", "long_paddle"),
-            ("幽冥邪蟲・噬魂", "soul_eater_bug"),
-            ("滅卻終焉・淨土", "purgatory_domain")
+            ("Platinum Star: The World", "slowmo"),
+            ("Infinite Aegis: Requiem", "long_paddle"),
+            ("Nether Bug: Soul Eater", "soul_eater_bug"),
+            ("Final Purgatory: Pure Land", "purgatory_domain")
         ]
         self.display_options = [opt[0] for opt in self.skills_options]
 

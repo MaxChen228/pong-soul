@@ -1,0 +1,12 @@
+initial_direction: "up"
+initial_angle_deg_range: [-60, 60]
+initial_speed: 0.03
+enable_spin: true
+magnus_factor: 0.03
+speed_increment: 0.003
+speed_scale_every: 3
+player_life: 5
+ai_life: 5
+player_paddle_width: 100
+ai_paddle_width: 80
+bg_music: "bg_music_level5.mp3"   

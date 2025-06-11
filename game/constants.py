@@ -23,7 +23,7 @@ DEFAULT_MENU_CONTROLS = {
 P1_GAME_CONTROLS = {
     'LEFT_KB': pygame.K_a,       # P1 左移改為 'A' 鍵
     'RIGHT_KB': pygame.K_d,      # P1 右移改為 'D' 鍵
-    'SKILL_KB': pygame.K_DOWN,   # P1 技能改為「下方向鍵」
+    'SKILL_KB': pygame.K_s,   
     # Mouse controls are handled directly in GameplayState, not via these constants.
 }
 
@@ -31,7 +31,7 @@ P1_GAME_CONTROLS = {
 P2_GAME_CONTROLS = {
     'LEFT': pygame.K_LEFT,     # P2 左移改為「左方向鍵」
     'RIGHT': pygame.K_RIGHT,    # P2 右移改為「右方向鍵」
-    'SKILL': pygame.K_s        # P2 技能暫時保持為 'S' 鍵 (如果需要更改請告知)
+    'SKILL': pygame.K_DOWN,      
 }
 
 # --- Add other game-wide constants below as needed ---
